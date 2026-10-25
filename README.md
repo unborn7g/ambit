@@ -29,9 +29,9 @@ Built using the **Devpost Learn Skill Pack** (`1-start`, `2-scope`, `3-prd`, `4-
    - Trims, collapses repeated whitespace, and normalizes curly quotes/apostrophes to straight ones on both the contract text and every candidate `clauseQuote`, then checks exact word-for-word substring containment.
    - If a quote is empty or does not appear verbatim in the contract, Ambit replaces it with `"No matching clause found"` and forces the item's status to **Unclear**.
 3. **Optional Live AI Route (`/api/analyze` in `src/app/api/analyze/route.ts` — Built, Not Tested with a Live Key):**
-   - Reads `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` (default `claude-3-5-haiku-latest`) on the server only.
+   - Reads `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` (default `claude-haiku-5-5`) on the server only.
    - Enforces a 6,000-character limit per box (`"Keep each box under 6,000 characters."`), validates model output to at most 8 items and only the 4 allowed fields (`requestText`, `clauseQuote`, `status`, `hours`), drops any injected dollar/total fields, and runs `verifyClauseQuotes` before returning.
-   - **Honest no-key behavior (built, not tested with a real API key):** Live `/api/analyze` is built in `src/app/api/analyze/route.ts` but was not tested against a live `ANTHROPIC_API_KEY`. When no key is present in `.env.local`, analyzing custom text returns an honest notice (`"Live AI analysis needs an ANTHROPIC_API_KEY in .env.local — click Load Sample to try the full calculator flow"`) with a one-click **Load Sample** button rather than faking AI classification with local keyword rules.
+   - **Honest no-key behavior (built, not tested with a real API key):** Live `/api/analyze` and its default model string (`claude-haiku-5-5`, overridable via `ANTHROPIC_MODEL`) are built in `src/app/api/analyze/route.ts` but are untested with a real `ANTHROPIC_API_KEY` either way. When no key is configured, analyzing custom text shows the honest notice (`"Analyzing your own text needs an Anthropic API key, and this demo doesn’t have one set. You can still see how Ambit works on the built-in architecture sample."`) with a one-click **Load architecture sample** button rather than faking AI classification with local keyword rules.
 
 ---
 
@@ -127,7 +127,7 @@ The built-in architectural visualization sample works without any environment va
 ```bash
 cp .env.example .env.local
 ```
-Set `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_MODEL`, which defaults to `claude-3-5-haiku-latest`).
+Set `ANTHROPIC_API_KEY` (and optionally `ANTHROPIC_MODEL`, which defaults to `claude-haiku-5-5`; both the live route and default model string are untested with a live API key).
 
 ### 4. Start the development server
 ```bash

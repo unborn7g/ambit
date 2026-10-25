@@ -7,7 +7,7 @@ import {
 
 export const runtime = "nodejs";
 
-const DEFAULT_ANTHROPIC_MODEL = "claude-3-5-haiku-latest";
+const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5";
 
 const SYSTEM_PROMPT = [
   "You are an assistant that splits a client message into separate work requests and compares each request against a freelancer's contract deliverables.",
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
       {
         missingKey: true,
         error:
-          "Live AI analysis needs an ANTHROPIC_API_KEY in .env.local — click Load Sample to try the full calculator flow",
+          "Analyzing your own text needs an Anthropic API key, and this demo doesn’t have one set. You can still see how Ambit works on the built-in architecture sample.",
       },
       { status: 503 }
     );
@@ -98,7 +98,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "Could not reach the AI service — click Load Sample to use the built-in example or try again.",
+            "Could not reach the AI service — click Load architecture sample to use the built-in example or try again.",
         },
         { status: 502 }
       );
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "Could not parse the AI response — click Load Sample to use the built-in example or try again.",
+            "Could not parse the AI response — click Load architecture sample to use the built-in example or try again.",
         },
         { status: 502 }
       );
@@ -128,7 +128,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "No actionable requests were returned — click Load Sample to use the built-in example or try again.",
+            "No actionable requests were returned — click Load architecture sample to use the built-in example or try again.",
         },
         { status: 502 }
       );
@@ -140,7 +140,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "Could not reach the AI service — click Load Sample to use the built-in example or try again.",
+          "Could not reach the AI service — click Load architecture sample to use the built-in example or try again.",
       },
       { status: 502 }
     );

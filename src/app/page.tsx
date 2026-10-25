@@ -20,7 +20,7 @@ import {
 } from "@/lib/sample";
 
 const MISSING_KEY_MESSAGE =
-  "Live AI analysis needs an ANTHROPIC_API_KEY in .env.local — click Load Sample to try the full calculator flow";
+  "Analyzing your own text needs an Anthropic API key, and this demo doesn’t have one set. You can still see how Ambit works on the built-in architecture sample.";
 
 export default function AmbitPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
@@ -178,7 +178,7 @@ export default function AmbitPage() {
       setRunning(false);
     } catch {
       setInputNotice(
-        "Could not reach the AI service — click Load Sample to use the built-in example or try again."
+        "Could not reach the AI service — click Load architecture sample to use the built-in example or try again."
       );
       setShowSampleAction(true);
       setStage(0);
@@ -604,19 +604,29 @@ export default function AmbitPage() {
                   flex: 1,
                   backgroundColor: "var(--uncSoft)",
                   backgroundImage:
-                    "repeating-linear-gradient(135deg, var(--unc) 0 1px, transparent 1px 7px)",
+                    "repeating-linear-gradient(135deg, var(--uncStripe) 0 1px, transparent 1px 8px)",
                   border: "1.5px dashed var(--unc)",
                   borderRadius: "18px",
                   display: "flex",
                   alignItems: "flex-end",
-                  padding: "12px 16px",
+                  padding: "10px 12px",
                   boxSizing: "border-box",
                   color: "var(--uncText)",
                   fontWeight: 600,
                   fontSize: "15px",
                 }}
               >
-                Unclear
+                <span
+                  style={{
+                    background: "var(--uncSoft)",
+                    color: "var(--uncText)",
+                    padding: "3px 10px",
+                    borderRadius: "999px",
+                    boxShadow: "0 0 0 1px var(--rule)",
+                  }}
+                >
+                  Unclear
+                </span>
               </div>
             </div>
           </div>
@@ -864,7 +874,7 @@ export default function AmbitPage() {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Load Sample
+                    Load architecture sample
                   </button>
                 )}
               </div>
@@ -1107,7 +1117,7 @@ export default function AmbitPage() {
                     cursor: "pointer",
                   }}
                 >
-                  Load Sample
+                  Load architecture sample
                 </button>
               )}
             </div>
@@ -1475,7 +1485,7 @@ export default function AmbitPage() {
                             ? {
                                 backgroundColor: "var(--uncSoft)",
                                 backgroundImage:
-                                  "repeating-linear-gradient(135deg, var(--unc) 0 1px, transparent 1px 7px)",
+                                  "repeating-linear-gradient(135deg, var(--uncStripe) 0 1px, transparent 1px 8px)",
                                 border: "1.5px dashed var(--unc)",
                                 color: "var(--uncText)",
                               }
@@ -1485,7 +1495,23 @@ export default function AmbitPage() {
                               }),
                         }}
                       >
-                        {b.label}
+                        {b.isUnclear ? (
+                          <span
+                            style={{
+                              background: "var(--uncSoft)",
+                              color: "var(--uncText)",
+                              padding: "3px 10px",
+                              borderRadius: "999px",
+                              boxShadow: "0 0 0 1px var(--rule)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {b.label}
+                          </span>
+                        ) : (
+                          b.label
+                        )}
                       </div>
                     ))}
                   </div>

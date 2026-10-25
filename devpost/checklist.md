@@ -34,13 +34,13 @@
 
 - [x] **Slice 3 — Server `/api/analyze` Route (Server-Only Env Key + 4-Field/8-Item Validator), Honest Missing-Key Fallback & Final Check:**
   - **What gets built:**
-    - `src/app/api/analyze/route.ts`: `POST /api/analyze` server route reading `process.env.ANTHROPIC_API_KEY` and `process.env.ANTHROPIC_MODEL` (default `claude-3-5-haiku-latest`) on the server only, enforcing the 6,000-character limit per box (`HTTP 400` with `"Keep each box under 6,000 characters."`), validating AI JSON output through `validateAiItems` (max 8 items, only `requestText`, `clauseQuote`, `status`, `hours` kept, all totals/dollar fields dropped), and running `verifyClauseQuotes` before returning.
-    - Honest missing-key fallback: when `ANTHROPIC_API_KEY` is not set in the server environment, `/api/analyze` returns `HTTP 503` (`missingKey: true`) and the UI shows `"Live AI analysis needs an ANTHROPIC_API_KEY in .env.local — click Load Sample to try the full calculator flow"` with a one-click `Load Sample` button (no fake local keyword fallback).
+    - `src/app/api/analyze/route.ts`: `POST /api/analyze` server route reading `process.env.ANTHROPIC_API_KEY` and `process.env.ANTHROPIC_MODEL` (default `claude-haiku-5-5`, untested with a live key) on the server only, enforcing the 6,000-character limit per box (`HTTP 400` with `"Keep each box under 6,000 characters."`), validating AI JSON output through `validateAiItems` (max 8 items, only `requestText`, `clauseQuote`, `status`, `hours` kept, all totals/dollar fields dropped), and running `verifyClauseQuotes` before returning.
+    - Honest missing-key fallback: when `ANTHROPIC_API_KEY` is not set in the server environment, `/api/analyze` returns `HTTP 503` (`missingKey: true`) and the UI shows `"Analyzing your own text needs an Anthropic API key, and this demo doesn’t have one set. You can still see how Ambit works on the built-in architecture sample."` with a one-click `Load architecture sample` button (no fake local keyword fallback).
     - Privacy & non-advice copy in the footer (`"When you analyze your own text, it is sent to the Anthropic API."` and `"Not legal advice"`).
     - `.env.example`, `LICENSE` (MIT), `README.md` (with run steps, actual `npx tsx --test test/ambit.test.ts` output, and honest `"How AI was used"` section), and `devpost/app-map.html`.
   - **How we know it works:**
     - `npm test` (`npx tsx --test test/ambit.test.ts`) passes all 8 unit tests and `npm run build` succeeds.
-    - Custom text without an API key returns `HTTP 503` with the exact honest missing-key message and one-click `Load Sample` button.
+    - Custom text without an API key returns `HTTP 503` with the exact honest missing-key message and one-click `Load architecture sample` button.
 
 ---
 
