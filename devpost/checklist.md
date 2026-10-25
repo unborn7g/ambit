@@ -20,7 +20,7 @@
     - `npm run build` succeeds cleanly.
     - Clicking `Analyze message` on the pre-loaded sample renders 5 items (`1 covered · 0 h`, `3 extra · 15 h`, `1 unclear · 0 h`), `$375` (`15 h × $25/h = $375`), count-sized bar (`20% / 60% / 20%`), and the 3-sentence reply; flipping Request #4 (`Unclear`) to `Extra` immediately updates to `17 h × $25/h = $425` and `20% / 80% / 0%`.
 
-- [ ] **Slice 2 — Input Validation Guards, 6,000-Character Limit Notice, Empty-Box Validation & Copy Confirmation:**
+- [x] **Slice 2 — Input Validation Guards, 6,000-Character Limit Notice, Empty-Box Validation & Copy Confirmation:**
   - **What gets built:**
     - Empty-box validation (`Contract deliverables` and `Client's WhatsApp or email message`) with inline accessible notice when clicking `Analyze message` with either box empty.
     - 6,000-character limit guard per input box with live character count warning and exact visible message `"Keep each box under 6,000 characters."` when exceeded.
@@ -45,7 +45,7 @@
 
 ---
 
-## Latest Test Output (Slice 1)
+## Latest Test Output (Slice 2)
 
 ```text
 > ambit@1.0.0 test
@@ -55,22 +55,58 @@ TAP version 13
 # Subtest: Ambit pure scope math, quote verifier, and validator
     # Subtest: 1. computes sample initial math: 15 h x $25 = $375 with Covered and Unclear counting as 0
     ok 1 - 1. computes sample initial math: 15 h x $25 = $375 with Covered and Unclear counting as 0
+      ---
+      duration_ms: 11.162023
+      type: 'test'
+      ...
     # Subtest: 2. flipping Request 4 from Unclear to Extra uses its stored 2 h default to produce 17 h x $25 = $425
     ok 2 - 2. flipping Request 4 from Unclear to Extra uses its stored 2 h default to produce 17 h x $25 = $425
+      ---
+      duration_ms: 0.496917
+      type: 'test'
+      ...
     # Subtest: 3. sizes bar segments by request count (20% / 60% / 20% initially, then 20% / 80% / 0%)
     ok 3 - 3. sizes bar segments by request count (20% / 60% / 20% initially, then 20% / 80% / 0%)
+      ---
+      duration_ms: 0.466567
+      type: 'test'
+      ...
     # Subtest: 4. clamps negative, blank, and NaN values for hours and hourly rate to 0
     ok 4 - 4. clamps negative, blank, and NaN values for hours and hourly rate to 0
+      ---
+      duration_ms: 0.22733
+      type: 'test'
+      ...
     # Subtest: 5. normalizes whitespace and curly quotes/apostrophes, forces failed quotes to Unclear, and preserves valid AI hours (defaulting to 2 h only when invalid)
     ok 5 - 5. normalizes whitespace and curly quotes/apostrophes, forces failed quotes to Unclear, and preserves valid AI hours (defaulting to 2 h only when invalid)
+      ---
+      duration_ms: 0.249746
+      type: 'test'
+      ...
     # Subtest: 6. verifies all 5 built-in sample items against the sample contract and keeps Request 4 Unclear
     ok 6 - 6. verifies all 5 built-in sample items against the sample contract and keeps Request 4 Unclear
+      ---
+      duration_ms: 0.14421
+      type: 'test'
+      ...
     # Subtest: 7. route validator drops extra injected fields (totals, dollars, rate) and caps list at 8 items
     ok 7 - 7. route validator drops extra injected fields (totals, dollars, rate) and caps list at 8 items
+      ---
+      duration_ms: 0.471748
+      type: 'test'
+      ...
     # Subtest: 8. builds a natural 3-sentence reply when there are zero Extra items
     ok 8 - 8. builds a natural 3-sentence reply when there are zero Extra items
+      ---
+      duration_ms: 0.37684
+      type: 'test'
+      ...
     1..8
 ok 1 - Ambit pure scope math, quote verifier, and validator
+  ---
+  duration_ms: 14.513361
+  type: 'suite'
+  ...
 1..1
 # tests 8
 # suites 1
@@ -79,5 +115,5 @@ ok 1 - Ambit pure scope math, quote verifier, and validator
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 158.249752
+# duration_ms 132.504746
 ```

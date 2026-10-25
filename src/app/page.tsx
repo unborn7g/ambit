@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   AmbitItem,
+  MAX_INPUT_CHARS,
   RequestStatus,
   calculateAmbitSummary,
   clampNonNegative,
@@ -29,6 +30,10 @@ export default function AmbitPage() {
   const [items, setItems] = useState<AmbitItem[]>([]);
   const [hoursStrMap, setHoursStrMap] = useState<Record<number, string>>({});
   const [copied, setCopied] = useState<false | "yes" | "no">(false);
+  const [inputNotice, setInputNotice] = useState<string>("");
+
+  const contractRef = useRef<HTMLTextAreaElement | null>(null);
+  const messageRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [billFlashKey, setBillFlashKey] = useState<number>(0);
   const [replyFlashKey, setReplyFlashKey] = useState<number>(0);
@@ -48,6 +53,10 @@ export default function AmbitPage() {
       // keep light
     }
   }, []);
+
+  const contractOverLimit = contract.length > MAX_INPUT_CHARS;
+  const messageOverLimit = message.length > MAX_INPUT_CHARS;
+  const overCharLimit = contractOverLimit || messageOverLimit;
 
   const summary = calculateAmbitSummary(items, rateStr, usingSample);
 
@@ -82,14 +91,38 @@ export default function AmbitPage() {
 
   const handleAnalyze = async () => {
     if (running) return;
-    if (!contract.trim() || !message.trim()) {
+    setCopied(false);
+
+    if (overCharLimit) {
+      setInputNotice("Keep each box under 6,000 characters.");
+      if (contractOverLimit) {
+        contractRef.current?.focus();
+      } else {
+        messageRef.current?.focus();
+      }
       return;
     }
 
+    if (!contract.trim()) {
+      setInputNotice(
+        "Paste your contract deliverables above before running the analysis."
+      );
+      contractRef.current?.focus();
+      return;
+    }
+
+    if (!message.trim()) {
+      setInputNotice(
+        "Paste your client's message above before running the analysis."
+      );
+      messageRef.current?.focus();
+      return;
+    }
+
+    setInputNotice("");
     setRunning(true);
     setStage(1);
     setItems([]);
-    setCopied(false);
 
     await new Promise((r) => setTimeout(r, 260));
     setStage(2);
@@ -114,6 +147,7 @@ export default function AmbitPage() {
     setItems([]);
     setStage(0);
     setCopied(false);
+    setInputNotice("");
   };
 
   const handleClear = () => {
@@ -124,6 +158,10 @@ export default function AmbitPage() {
     setItems([]);
     setStage(0);
     setCopied(false);
+    setInputNotice("");
+    setTimeout(() => {
+      contractRef.current?.focus();
+    }, 0);
   };
 
   const handleSetFlag = (id: number, nextFlag: RequestStatus) => {
@@ -140,11 +178,38 @@ export default function AmbitPage() {
 
   const handleSetHours = (id: number, rawVal: string) => {
     setCopied(false);
-    setHoursStrMap((m) => ({ ...m, [id]: rawVal }));
+    const num = Number(rawVal);
+    const normalizedStr =
+      rawVal.trim() !== "" && Number.isFinite(num) && num < 0 ? "0" : rawVal;
+    setHoursStrMap((m) => ({ ...m, [id]: normalizedStr }));
     const clamped = clampNonNegative(rawVal, 999);
     setItems((prev) =>
       prev.map((it) => (it.id === id ? { ...it, hours: clamped } : it))
     );
+  };
+
+  const handleBlurHours = (id: number) => {
+    const raw = hoursStrMap[id] ?? "";
+    const clamped = clampNonNegative(raw, 999);
+    setHoursStrMap((m) => ({ ...m, [id]: String(clamped) }));
+    setItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, hours: clamped } : it))
+    );
+  };
+
+  const handleRateChange = (rawVal: string) => {
+    setCopied(false);
+    const num = Number(rawVal);
+    if (rawVal.trim() !== "" && Number.isFinite(num) && num < 0) {
+      setRateStr("0");
+      return;
+    }
+    setRateStr(rawVal);
+  };
+
+  const handleRateBlur = () => {
+    const clamped = clampNonNegative(rateStr, 99999);
+    setRateStr(String(clamped));
   };
 
   const handleCopyReply = async () => {
@@ -221,6 +286,9 @@ export default function AmbitPage() {
       : "Analyze message";
 
   const analyzePct = running ? Math.round((stage / 3) * 100) : 0;
+  const visibleBanner = overCharLimit
+    ? "Keep each box under 6,000 characters."
+    : inputNotice;
 
   return (
     <div
@@ -565,22 +633,43 @@ export default function AmbitPage() {
                   gap: "10px",
                 }}
               >
-                <label
-                  htmlFor="contract"
-                  style={{ fontSize: "15px", fontWeight: 600 }}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                  }}
                 >
-                  Contract deliverables
-                </label>
+                  <label
+                    htmlFor="contract"
+                    style={{ fontSize: "15px", fontWeight: 600 }}
+                  >
+                    Contract deliverables
+                  </label>
+                  <span
+                    className="am-num"
+                    style={{
+                      fontSize: "13px",
+                      color: contractOverLimit ? "var(--extText)" : "var(--muted)",
+                      fontWeight: contractOverLimit ? 600 : 400,
+                    }}
+                  >
+                    {contract.length.toLocaleString()} /{" "}
+                    {MAX_INPUT_CHARS.toLocaleString()}
+                  </span>
+                </div>
                 <textarea
+                  ref={contractRef}
                   id="contract"
                   data-testid="contract"
                   className="am-field"
                   value={contract}
                   onChange={(e) => {
-                    setContract(e.target.value);
-                    setUsingSample(
-                      isBuiltInSampleInput(e.target.value, message)
-                    );
+                    const nextVal = e.target.value;
+                    setContract(nextVal);
+                    setUsingSample(isBuiltInSampleInput(nextVal, message));
+                    if (inputNotice) setInputNotice("");
                   }}
                   rows={9}
                   style={{
@@ -588,7 +677,7 @@ export default function AmbitPage() {
                     boxSizing: "border-box",
                     minHeight: "250px",
                     padding: "18px 20px",
-                    border: 0,
+                    border: contractOverLimit ? "1.5px solid var(--ext)" : 0,
                     borderRadius: "18px",
                     background: "var(--well)",
                     color: "var(--ink)",
@@ -608,22 +697,43 @@ export default function AmbitPage() {
                   gap: "10px",
                 }}
               >
-                <label
-                  htmlFor="message"
-                  style={{ fontSize: "15px", fontWeight: 600 }}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: "8px",
+                  }}
                 >
-                  Client&apos;s WhatsApp or email message
-                </label>
+                  <label
+                    htmlFor="message"
+                    style={{ fontSize: "15px", fontWeight: 600 }}
+                  >
+                    Client&apos;s WhatsApp or email message
+                  </label>
+                  <span
+                    className="am-num"
+                    style={{
+                      fontSize: "13px",
+                      color: messageOverLimit ? "var(--extText)" : "var(--muted)",
+                      fontWeight: messageOverLimit ? 600 : 400,
+                    }}
+                  >
+                    {message.length.toLocaleString()} /{" "}
+                    {MAX_INPUT_CHARS.toLocaleString()}
+                  </span>
+                </div>
                 <textarea
+                  ref={messageRef}
                   id="message"
                   data-testid="message"
                   className="am-field"
                   value={message}
                   onChange={(e) => {
-                    setMessage(e.target.value);
-                    setUsingSample(
-                      isBuiltInSampleInput(contract, e.target.value)
-                    );
+                    const nextVal = e.target.value;
+                    setMessage(nextVal);
+                    setUsingSample(isBuiltInSampleInput(contract, nextVal));
+                    if (inputNotice) setInputNotice("");
                   }}
                   rows={9}
                   style={{
@@ -631,7 +741,7 @@ export default function AmbitPage() {
                     boxSizing: "border-box",
                     minHeight: "250px",
                     padding: "18px 20px",
-                    border: 0,
+                    border: messageOverLimit ? "1.5px solid var(--ext)" : 0,
                     borderRadius: "18px",
                     background: "var(--well)",
                     color: "var(--ink)",
@@ -643,6 +753,27 @@ export default function AmbitPage() {
                 />
               </div>
             </div>
+
+            {visibleBanner && (
+              <div
+                role="alert"
+                data-testid="input-notice"
+                style={{
+                  padding: "12px 18px",
+                  borderRadius: "14px",
+                  background: "var(--extSoft)",
+                  color: "var(--extText)",
+                  fontSize: "15px",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                }}
+              >
+                <span>{visibleBanner}</span>
+              </div>
+            )}
 
             <div
               style={{
@@ -683,7 +814,8 @@ export default function AmbitPage() {
                   min="0"
                   step="1"
                   value={rateStr}
-                  onChange={(e) => setRateStr(e.target.value)}
+                  onChange={(e) => handleRateChange(e.target.value)}
+                  onBlur={handleRateBlur}
                   style={{
                     width: "70px",
                     border: 0,
@@ -853,9 +985,11 @@ export default function AmbitPage() {
                   ? stage === 1
                     ? "Splitting the message into separate requests…"
                     : "Matching each request to a contract clause…"
-                  : message.trim()
-                    ? "Run the analysis to see what is covered. Your job is ready above."
-                    : "Paste a contract and a client message above, then run the analysis."}
+                  : visibleBanner
+                    ? visibleBanner
+                    : message.trim() && contract.trim()
+                      ? "Run the analysis to see what is covered. Your job is ready above."
+                      : "Paste a contract and a client message above, then run the analysis."}
               </span>
             </div>
           )}
@@ -1722,6 +1856,7 @@ export default function AmbitPage() {
                               onChange={(e) =>
                                 handleSetHours(r.id, e.target.value)
                               }
+                              onBlur={() => handleBlurHours(r.id)}
                               disabled={isCov}
                               style={{
                                 width: "76px",
