@@ -1,0 +1,18 @@
+# Devpost Learn — personal learning context (never commit to public repo)
+/devpost/learner-profile.md
+devpost/learner-profile.md
+
+# Local credentials & environment variables (allow only .env.example)
+.env
+.env.*
+!.env.example
+
+# Dependencies & Next.js build output
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
