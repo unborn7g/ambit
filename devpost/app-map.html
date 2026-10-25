@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Ambit — App Map (Devpost Learn 5-build)</title>
+  <style>
+    :root {
+      --bg: #EDEDEA;
+      --panel: #FBFBFA;
+      --well: #F0F0ED;
+      --ink: #12141A;
+      --muted: #5C6068;
+      --rule: #DCDCD6;
+      --brass: #8A5E14;
+      --cov: #0E7352;
+      --ext: #C93A12;
+      --unc: #5F6B78;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 40px 24px 72px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+    header, section {
+      background: var(--panel);
+      border: 1px solid var(--rule);
+      border-radius: 20px;
+      padding: 24px 28px;
+    }
+    h1, h2, h3 {
+      margin: 0 0 10px;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+    h1 { font-size: 30px; }
+    h2 { font-size: 20px; }
+    h3 { font-size: 16px; }
+    p { margin: 0 0 10px; color: var(--muted); }
+    p:last-child { margin-bottom: 0; }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      background: var(--well);
+      padding: 2px 6px;
+      border-radius: 6px;
+      color: var(--ink);
+    }
+    ol, ul {
+      margin: 8px 0 0;
+      padding-left: 20px;
+    }
+    li { margin-bottom: 8px; }
+    details {
+      margin-top: 10px;
+      background: var(--well);
+      border-radius: 12px;
+      padding: 12px 16px;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .svg-wrap {
+      overflow-x: auto;
+      padding: 8px 0;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Ambit — Architecture &amp; Code Map</h1>
+    <p>
+      Ambit helps a freelancer compare a client message against their contract deliverables before agreeing to unpaid extra work.
+      The app separates reading from counting: an optional server route splits custom text into candidate requests, a deterministic quote verifier checks that every quoted clause is an exact substring of the contract, and a pure TypeScript math engine computes every hour total, dollar total, count-based bar percentage, and the three-sentence client reply.
+    </p>
+  </header>
+
+  <section aria-labelledby="flow-heading">
+    <h2 id="flow-heading">How One Action Flows Through the Code</h2>
+    <p>Action traced: clicking <code>Analyze message</code> or flipping Request #4 from <code>Unclear</code> to <code>Extra</code>.</p>
+    <div class="svg-wrap">
+      <svg viewBox="0 0 840 160" width="100%" height="160" role="img" aria-label="Flow diagram from src/app/page.tsx to src/lib/ambit.ts and back to visible totals">
+        <rect x="10" y="24" width="240" height="112" rx="14" fill="#F0F0ED" stroke="#DCDCD6" />
+        <text x="26" y="54" font-size="14" font-weight="700" fill="#12141A">1. Entry Point (UI State)</text>
+        <text x="26" y="78" font-size="12" fill="#5C6068">src/app/page.tsx</text>
+        <text x="26" y="100" font-size="12" fill="#12141A">handleAnalyze() / handleSetFlag()</text>
+        <text x="26" y="120" font-size="11" fill="#5C6068">Calls /api/analyze or sample.ts</text>
+
+        <path d="M254 80 L294 80" stroke="#8A5E14" stroke-width="2.2" />
+        <polygon points="294,75 304,80 294,85" fill="#8A5E14" />
+
+        <rect x="308" y="24" width="240" height="112" rx="14" fill="#F0F0ED" stroke="#DCDCD6" />
+        <text x="324" y="54" font-size="14" font-weight="700" fill="#12141A">2. Quote &amp; Math Kernel</text>
+        <text x="324" y="78" font-size="12" fill="#5C6068">src/lib/ambit.ts</text>
+        <text x="324" y="100" font-size="12" fill="#12141A">verifyClauseQuotes()</text>
+        <text x="324" y="120" font-size="12" fill="#12141A">calculateAmbitSummary()</text>
+
+        <path d="M552 80 L592 80" stroke="#8A5E14" stroke-width="2.2" />
+        <polygon points="592,75 602,80 592,85" fill="#8A5E14" />
+
+        <rect x="606" y="24" width="224" height="112" rx="14" fill="#F0F0ED" stroke="#DCDCD6" />
+        <text x="622" y="54" font-size="14" font-weight="700" fill="#12141A">3. Visible Result</text>
+        <text x="622" y="78" font-size="12" fill="#0E7352">Covered: 20% (0 h)</text>
+        <text x="622" y="98" font-size="12" fill="#C93A12">Extra: 15 h x $25 = $375</text>
+        <text x="622" y="118" font-size="12" fill="#5F6B78">3-sentence reply + Copy</text>
+      </svg>
+    </div>
+  </section>
+
+  <section aria-labelledby="route-heading">
+    <h2 id="route-heading">3-Stop Reference Route</h2>
+    <p>This reference route traces how a request status change recalculates the bill, bar, and client reply without calling the AI again.</p>
+    <ol>
+      <li>
+        <strong>Stop 1 — UI Event Handler:</strong> <code>src/app/page.tsx</code> &rarr; search for <code>function handleSetFlag</code> and <code>calculateAmbitSummary(items, rateStr, usingSample)</code>.
+        When you click <code>Extra</code> on Request #4, <code>handleSetFlag</code> calls <code>flipItemStatus</code> so an <code>Unclear</code> item keeps its stored <code>2 h</code> default (or falls back to <code>2 h</code> if hours were zero).
+      </li>
+      <li>
+        <strong>Stop 2 — Pure Quote Verifier &amp; Math Engine:</strong> <code>src/lib/ambit.ts</code> &rarr; search for <code>export function verifyClauseQuotes</code> and <code>export function calculateAmbitSummary</code>.
+        <code>verifyClauseQuotes</code> normalizes whitespace and curly quotes on both sides before checking exact substring containment; <code>calculateAmbitSummary</code> sums only <code>Extra</code> hours (<code>15 h &rarr; 17 h</code>), multiplies by the clamped hourly rate (<code>$375 &rarr; $425</code>), sizes the scope bar by request count (<code>20% / 80% / 0%</code>), and builds the 3-sentence reply via <code>buildChangeOrderReply</code>.
+      </li>
+      <li>
+        <strong>Stop 3 — Optional Server AI Boundary:</strong> <code>src/app/api/analyze/route.ts</code> &rarr; search for <code>export async function POST</code> and <code>validateAiItems</code>.
+        Reads <code>ANTHROPIC_API_KEY</code> and <code>ANTHROPIC_MODEL</code> on the server only, enforces <code>MAX_INPUT_CHARS = 6000</code>, caps output at 8 items with only the 4 allowed fields (<code>requestText</code>, <code>clauseQuote</code>, <code>status</code>, <code>hours</code>), and runs <code>verifyClauseQuotes</code> before returning.
+      </li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="change-heading">
+    <h2 id="change-heading">To Change This, Start Here</h2>
+    <ul>
+      <li><strong>Change the built-in sample contract, WhatsApp message, or default $25/hr rate:</strong> edit <code>SAMPLE_CONTRACT</code>, <code>SAMPLE_MESSAGE</code>, <code>SAMPLE_HOURLY_RATE</code>, and <code>SAMPLE_ITEMS</code> in <code>src/lib/sample.ts</code>.</li>
+      <li><strong>Change the default hours when an Unclear request is flipped to Extra:</strong> edit <code>DEFAULT_UNCLEAR_HOURS = 2</code> in <code>src/lib/ambit.ts</code>.</li>
+      <li><strong>Change the 3-sentence client reply wording:</strong> edit <code>buildChangeOrderReply</code> in <code>src/lib/ambit.ts</code> and run <code>npm test</code> to verify the unit test suite in <code>test/ambit.test.ts</code>.</li>
+      <li><strong>Change light/dark color tokens:</strong> edit <code>.am-root</code> and <code>.am-root[data-theme="dark"]</code> in <code>src/app/globals.css</code>.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="practice-heading">
+    <h2 id="practice-heading">A Practice to Reuse</h2>
+    <p>
+      <strong>Separate AI classification from deterministic verification and math.</strong>
+      In <code>devpost/spec.md</code> (Risk #1 and Risk #4), we identified two failure modes common in LLM apps: the model might paraphrase or invent a contract clause, or a prompt injection inside the client message might try to manipulate dollar totals.
+      Instead of trusting model output directly, <code>validateAiItems</code> in <code>src/lib/ambit.ts</code> strips every field except <code>requestText</code>, <code>clauseQuote</code>, <code>status</code>, and <code>hours</code> (tested in <code>test/ambit.test.ts</code> Subtest #7), and <code>verifyClauseQuotes</code> checks word-for-word substring containment against the contract text after normalizing whitespace and curly quotes (tested in Subtest #5). Any quote that fails is forced to <code>Unclear</code> with <code>"No matching clause found"</code>, and all dollar math happens in pure TypeScript.
+    </p>
+    <details>
+      <summary>How to run the app and tests locally (snapshot notes)</summary>
+      <p style="margin-top:8px;">
+        Run <code>npm install</code>, then <code>npm test</code> (runs <code>tsx --test test/ambit.test.ts</code>) and <code>npm run dev</code>.
+        This map is a static snapshot generated during <code>5-build</code> wrap-up and can drift if files are moved later.
+      </p>
+    </details>
+  </section>
+</main>
+</body>
+</html>

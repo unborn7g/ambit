@@ -19,6 +19,9 @@ import {
   isBuiltInSampleInput,
 } from "@/lib/sample";
 
+const MISSING_KEY_MESSAGE =
+  "Live AI analysis needs an ANTHROPIC_API_KEY in .env.local — click Load Sample to try the full calculator flow";
+
 export default function AmbitPage() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [contract, setContract] = useState<string>(SAMPLE_CONTRACT);
@@ -31,6 +34,7 @@ export default function AmbitPage() {
   const [hoursStrMap, setHoursStrMap] = useState<Record<number, string>>({});
   const [copied, setCopied] = useState<false | "yes" | "no">(false);
   const [inputNotice, setInputNotice] = useState<string>("");
+  const [showSampleAction, setShowSampleAction] = useState<boolean>(false);
 
   const contractRef = useRef<HTMLTextAreaElement | null>(null);
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
@@ -94,6 +98,7 @@ export default function AmbitPage() {
     setCopied(false);
 
     if (overCharLimit) {
+      setShowSampleAction(false);
       setInputNotice("Keep each box under 6,000 characters.");
       if (contractOverLimit) {
         contractRef.current?.focus();
@@ -104,6 +109,7 @@ export default function AmbitPage() {
     }
 
     if (!contract.trim()) {
+      setShowSampleAction(false);
       setInputNotice(
         "Paste your contract deliverables above before running the analysis."
       );
@@ -112,6 +118,7 @@ export default function AmbitPage() {
     }
 
     if (!message.trim()) {
+      setShowSampleAction(false);
       setInputNotice(
         "Paste your client's message above before running the analysis."
       );
@@ -120,22 +127,63 @@ export default function AmbitPage() {
     }
 
     setInputNotice("");
+    setShowSampleAction(false);
     setRunning(true);
     setStage(1);
     setItems([]);
 
-    await new Promise((r) => setTimeout(r, 260));
-    setStage(2);
-    await new Promise((r) => setTimeout(r, 260));
-
     const isSample = isBuiltInSampleInput(contract, message);
     setUsingSample(isSample);
-    const verified = verifyClauseQuotes(contract, getSampleItems());
-    applyItems(verified);
-    prevBillRef.current = "";
-    prevReplyRef.current = "";
-    setStage(3);
-    setRunning(false);
+
+    if (isSample) {
+      await new Promise((r) => setTimeout(r, 260));
+      setStage(2);
+      await new Promise((r) => setTimeout(r, 260));
+
+      const verified = verifyClauseQuotes(contract, getSampleItems());
+      applyItems(verified);
+      prevBillRef.current = "";
+      prevReplyRef.current = "";
+      setStage(3);
+      setRunning(false);
+      return;
+    }
+
+    try {
+      setStage(2);
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contract, message }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        items?: AmbitItem[];
+        error?: string;
+        missingKey?: boolean;
+      };
+
+      if (!res.ok || !Array.isArray(payload.items)) {
+        const errMsg = payload.error || MISSING_KEY_MESSAGE;
+        setInputNotice(errMsg);
+        setShowSampleAction(true);
+        setStage(0);
+        setRunning(false);
+        return;
+      }
+
+      applyItems(payload.items);
+      prevBillRef.current = "";
+      prevReplyRef.current = "";
+      setStage(3);
+      setRunning(false);
+    } catch {
+      setInputNotice(
+        "Could not reach the AI service — click Load Sample to use the built-in example or try again."
+      );
+      setShowSampleAction(true);
+      setStage(0);
+      setRunning(false);
+    }
   };
 
   const handleLoadSample = () => {
@@ -148,6 +196,23 @@ export default function AmbitPage() {
     setStage(0);
     setCopied(false);
     setInputNotice("");
+    setShowSampleAction(false);
+  };
+
+  const handleLoadAndRunSample = () => {
+    if (running) return;
+    setContract(SAMPLE_CONTRACT);
+    setMessage(SAMPLE_MESSAGE);
+    setUsingSample(true);
+    setRateStr(String(SAMPLE_HOURLY_RATE));
+    setCopied(false);
+    setInputNotice("");
+    setShowSampleAction(false);
+    const verified = verifyClauseQuotes(SAMPLE_CONTRACT, getSampleItems());
+    applyItems(verified);
+    prevBillRef.current = "";
+    prevReplyRef.current = "";
+    setStage(3);
   };
 
   const handleClear = () => {
@@ -159,6 +224,7 @@ export default function AmbitPage() {
     setStage(0);
     setCopied(false);
     setInputNotice("");
+    setShowSampleAction(false);
     setTimeout(() => {
       contractRef.current?.focus();
     }, 0);
@@ -669,7 +735,10 @@ export default function AmbitPage() {
                     const nextVal = e.target.value;
                     setContract(nextVal);
                     setUsingSample(isBuiltInSampleInput(nextVal, message));
-                    if (inputNotice) setInputNotice("");
+                    if (inputNotice) {
+                      setInputNotice("");
+                      setShowSampleAction(false);
+                    }
                   }}
                   rows={9}
                   style={{
@@ -733,7 +802,10 @@ export default function AmbitPage() {
                     const nextVal = e.target.value;
                     setMessage(nextVal);
                     setUsingSample(isBuiltInSampleInput(contract, nextVal));
-                    if (inputNotice) setInputNotice("");
+                    if (inputNotice) {
+                      setInputNotice("");
+                      setShowSampleAction(false);
+                    }
                   }}
                   rows={9}
                   style={{
@@ -759,19 +831,42 @@ export default function AmbitPage() {
                 role="alert"
                 data-testid="input-notice"
                 style={{
-                  padding: "12px 18px",
-                  borderRadius: "14px",
+                  padding: "14px 18px",
+                  borderRadius: "16px",
                   background: "var(--extSoft)",
                   color: "var(--extText)",
                   fontSize: "15px",
                   fontWeight: 600,
                   display: "flex",
+                  flexWrap: "wrap",
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: "12px",
                 }}
               >
                 <span>{visibleBanner}</span>
+                {showSampleAction && !overCharLimit && (
+                  <button
+                    type="button"
+                    className="am-brass"
+                    data-testid="notice-load-sample"
+                    onClick={handleLoadAndRunSample}
+                    style={{
+                      minHeight: "40px",
+                      padding: "0 18px",
+                      border: 0,
+                      borderRadius: "999px",
+                      background: "var(--brass)",
+                      color: "var(--onBrass)",
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Load Sample
+                  </button>
+                )}
               </div>
             )}
 
@@ -977,6 +1072,10 @@ export default function AmbitPage() {
                 fontSize: "17px",
                 background: "var(--panel)",
                 boxShadow: "var(--lift)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "16px",
               }}
             >
               {running && <div className="am-scan" />}
@@ -991,6 +1090,26 @@ export default function AmbitPage() {
                       ? "Run the analysis to see what is covered. Your job is ready above."
                       : "Paste a contract and a client message above, then run the analysis."}
               </span>
+              {!running && showSampleAction && !overCharLimit && (
+                <button
+                  type="button"
+                  className="am-brass"
+                  onClick={handleLoadAndRunSample}
+                  style={{
+                    minHeight: "46px",
+                    padding: "0 24px",
+                    border: 0,
+                    borderRadius: "999px",
+                    background: "var(--brass)",
+                    color: "var(--onBrass)",
+                    fontSize: "15px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Load Sample
+                </button>
+              )}
             </div>
           )}
 
