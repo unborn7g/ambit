@@ -27,7 +27,7 @@ PRD ref: `prd.md > The Core Journey`.
 3. **Sample Path (Zero API Key):** When the inputs match the built-in sample, the page loads the 5 cached sample items (`#1 Covered 0 h`, `#2 Extra 3 h`, `#3 Extra 8 h`, `#4 Unclear 2 h stored`, `#5 Extra 4 h`), passes them through `verifyClauseQuotes(contractText, items)` and `calculateAmbitSummary(items, hourlyRate)`, and renders the result immediately.
 4. **Custom Text Path (`POST /api/analyze`):** When the user analyzes custom text, the browser posts `{ contractText, messageText }` to `/api/analyze`.
    - If `process.env.ANTHROPIC_API_KEY` is not set on the server, `/api/analyze` returns `{ ok: false, code: "NO_API_KEY" }`, and the UI displays `"Analyzing your own text needs an Anthropic API key, and this demo doesn't have one set. You can still see how Ambit works on the built-in architecture sample."` alongside a button that loads and analyzes the sample.
-   - If `ANTHROPIC_API_KEY` is set, `/api/analyze` calls Anthropic (`process.env.ANTHROPIC_MODEL || "claude-sonnet-4-20250514"`) with a 10-second timeout, runs `validateAiItems(rawParsed)` (accepting only a JSON array of objects, keeping only the 4 allowed fields, dropping any extra fields like totals or dollar amounts, and capping at `8` items), runs `verifyClauseQuotes(contractText, items)`, and returns the verified items. If the list is empty, the UI shows `"No requests found in this message"`. If the API times out, fails, or returns an invalid shape, the UI shows `"Analysis didn't finish. Try again, or use the sample."` while preserving the user's text.
+   - If `ANTHROPIC_API_KEY` is set, `/api/analyze` calls Anthropic (`process.env.ANTHROPIC_MODEL || "claude-haiku-5-5"`) with a 10-second timeout (`AbortSignal.timeout(10000)`), runs `validateAiItems(rawParsed)` (accepting only a JSON array of objects, keeping only the 4 allowed fields, dropping any extra fields like totals or dollar amounts, and capping at `8` items), runs `verifyClauseQuotes(contractText, items)`, and returns the verified items. If the list is empty, the UI shows `"No requests found in this message"`. If the API times out, fails, or returns an invalid shape, the UI shows `"Analysis didn’t finish. Try again, or use the sample."` while preserving the user's text.
 5. **Live Overrides in Plain Code:** When the user flips Request #4 from `Unclear` to `Extra` (or edits any item's hours or the hourly rate), React updates local state and calls `calculateAmbitSummary(items, hourlyRate)` synchronously in the browser—updating Request #4 to `Extra (2 h)`, shifting the bar counts from `20% / 60% / 20%` to `20% / 80% / 0%`, updating the formula line to `"Calculated in code: 17 h x $25 = $425"`, and updating the 3-sentence change-order reply with zero network calls.
 
 ## Stack
@@ -66,22 +66,28 @@ Implements `prd.md > 2. Scope Bar and Deterministic Code Math`, `prd.md > 3. Cla
   - `calculateAmbitSummary(items, hourlyRate)`: computes `coveredCount`, `extraCount`, `unclearCount`, count-based percentages (`coveredPct`, `extraPct`, `unclearPct`), `totalExtraHours` (summing `clampNonNegative(item.hours)` only where `status === "Extra"`), `totalExtraDollars` (`totalExtraHours * clampNonNegative(hourlyRate)`), and `formulaText` (`"Calculated in code: <totalExtraHours> h x $<rate> = $<totalExtraDollars>"`).
   - `buildChangeOrderReply(items, hourlyRate, summary)`: returns the deterministic 3-sentence change-order reply string, handling both positive Extra totals and the `0 Extra items` case cleanly.
 
-### 2. Built-In Architecture Sample (`src/lib/sample.ts`)
+### 2. Built-In Samples (`src/lib/sample.ts`)
 Implements `prd.md > 1. Sample Pre-load, Clear, and Input Validation`.
-- Stores the 4 architectural visualization contract clauses, the 5-part client WhatsApp message, default rate `25`, and the 5 pre-classified items whose quotes are exact word-for-word substrings of the sample contract:
-  1. `"Can you change the facade to brick?"` -> `Covered`, `0 h`, quote: `"2. Up to two revision rounds covering materials, colours and camera angle."`
-  2. `"Add a night version of render 2."` -> `Extra`, `3 h`, quote: `"1. Three exterior renders, 4K, daytime."`
-  3. `"Do a 30-second walkthrough video."` -> `Extra`, `8 h`, quote: `"1. Three exterior renders, 4K, daytime."`
-  4. `"Put the client's logo on every image."` -> `Unclear`, `2 h` (stored default, priced at `0` while Unclear), quote: `""` (becomes `"No matching clause found"` and stays `Unclear` through `verifyClauseQuotes`)
-  5. `"Move the entrance to the other side of the building, should be quick"` -> `Extra`, `4 h`, quote: `"Changes to the building's layout or massing count as new work."`
+- Stores two built-in saved samples (`Architecture sample` at `$25/hr` and `Web design sample` at `$40/hr`), clearly labeled in the UI as saved sample analyses, whose quotes are exact word-for-word substrings of their contracts:
+  - **Architecture sample (`$25/hr`):**
+    1. `"Can you change the facade to brick?"` -> `Covered`, `0 h`, quote: `"Up to two revision rounds covering materials, colours and camera angle."`
+    2. `"Add a night version of render 2."` -> `Extra`, `3 h`, quote: `"Three exterior renders, 4K resolution, daytime lighting."`
+    3. `"Do a 30-second walkthrough video."` -> `Extra`, `8 h`, quote: `"Three exterior renders, 4K resolution, daytime lighting."`
+    4. `"Put the client's logo on every image."` -> `Unclear`, `2 h` (stored default, priced at `0` while Unclear), quote: `"No matching clause found"` (stays `Unclear` through `verifyClauseQuotes`)
+    5. `"Move the entrance to the other side of the building, should be quick"` -> `Extra`, `4 h`, quote: `"Changes to the building's layout or massing count as new work."`
+  - **Web design sample (`$40/hr`):**
+    1. `"Can we swap the hero button colour to warm terracotta?"` -> `Covered`, `0 h`, quote: `"Up to two rounds of copy and colour revisions before launch."`
+    2. `"Add a custom illustrated map of our neighbourhood on the Contact page."` -> `Extra`, `4 h`, quote: `"Custom illustrations or logo redesigns count as new work."`
+    3. `"Build an online cake-ordering checkout page with Stripe."` -> `Extra`, `10 h`, quote: `"Four responsive pages: Home, Menu, About, and Contact."`
+    4. `"Upload our 12 seasonal pastry photos to the Menu page."` -> `Unclear`, `2 h` (stored default, priced at `0` while Unclear), quote: `"No matching clause found"`
 
 ### 3. Server Analysis Endpoint (`src/app/api/analyze/route.ts`)
 Implements `prd.md > States and Boundaries`.
 - Accepts `POST { contractText, messageText }`.
-- Validates non-empty strings and enforces a maximum length of `6,000` characters per field (`MAX_CHARS = 6000`).
+- Validates non-empty strings and enforces a maximum length of `6,000` characters per field (`MAX_INPUT_CHARS = 6000`).
 - Never logs or stores user text.
-- Reads `process.env.ANTHROPIC_API_KEY` and `process.env.ANTHROPIC_MODEL` (default `"claude-sonnet-4-20250514"`) on the server only. If `ANTHROPIC_API_KEY` is unset, returns `{ ok: false, code: "NO_API_KEY" }`.
-- When set, requests structured JSON from Anthropic, runs `validateAiItems` (stripping any extra fields and capping at 8 items), runs `verifyClauseQuotes(contractText, items)` on the server, and returns `{ ok: true, items }`.
+- Reads `process.env.ANTHROPIC_API_KEY` and `process.env.ANTHROPIC_MODEL` (default `"claude-haiku-5-5"`) on the server only. If `ANTHROPIC_API_KEY` is unset, returns `HTTP 503` with `missingKey: true`.
+- When set, requests structured JSON from Anthropic with `signal: AbortSignal.timeout(10000)`, returns `"Analysis didn’t finish. Try again, or use the sample."` if the request times out or fails, runs `validateAiItems` (stripping any extra fields and capping at 8 items), runs `verifyClauseQuotes(contractText, items)` on the server, and returns `{ items }`.
 
 ### 4. Single-Screen Workspace UI (`src/app/page.tsx`)
 Implements `prd.md > Screens and Layout`, `prd.md > Features and Behavior`, `prd.md > States and Boundaries`.
@@ -120,7 +126,7 @@ export interface AmbitSummary {
 ## File Structure
 ```
 hackathon/ambit/
-├── .env.example                 # Placeholders only: ANTHROPIC_API_KEY= and ANTHROPIC_MODEL=claude-sonnet-4-20250514
+├── .env.example                 # Placeholders only: ANTHROPIC_API_KEY= and ANTHROPIC_MODEL=claude-haiku-5-5
 ├── .gitignore                   # Ignores /devpost/learner-profile.md, .env, .env.*, node_modules, .next
 ├── LICENSE                      # MIT License
 ├── README.md                    # Setup/run steps, real test output, architecture boundary, honest "How AI was used"
@@ -159,6 +165,7 @@ hackathon/ambit/
 6. **Built-In Sample Passes `verifyClauseQuotes`:** Verifies all 5 built-in sample items pass `verifyClauseQuotes` against the sample contract text, with Request #4 remaining `Unclear` with `"No matching clause found"`.
 7. **Route Validator Drops Extra Fields & Caps at 8 Items:** Verifies `validateAiItems` strips injected or extra fields (`totalDollars`, `totalHours`, `rate`, `promptInjection`) and caps a 10-item array at `8` items.
 8. **Zero Extra Items Reply:** Verifies `buildChangeOrderReply` reads naturally and accurately when `0` items are marked `Extra` (`0 h`, `$0`).
+9. **Second Built-In Sample (`Web Design`) Quote Verification & Math:** Verifies all 4 items in the built-in Web Design sample pass `verifyClauseQuotes` against `WEB_DESIGN_SAMPLE_CONTRACT` and compute `14 h x $40 = $560`.
 
 ## External Services and Dependencies
 - **Anthropic Messages API (`https://api.anthropic.com/v1/messages`):**

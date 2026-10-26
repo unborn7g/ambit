@@ -119,22 +119,28 @@ TAP version 13
     # Subtest: 8. builds a natural 3-sentence reply when there are zero Extra items
     ok 8 - 8. builds a natural 3-sentence reply when there are zero Extra items
       ---
-      duration_ms: 0.430761
+      duration_ms: 0.259561
       type: 'test'
       ...
-    1..8
+    # Subtest: 9. verifies all quotes in the second built-in Web Design sample against its contract and computes 14 h x $40 = $560
+    ok 9 - 9. verifies all quotes in the second built-in Web Design sample against its contract and computes 14 h x $40 = $560
+      ---
+      duration_ms: 0.365582
+      type: 'test'
+      ...
+    1..9
 ok 1 - Ambit pure scope math, quote verifier, and validator
   ---
-  duration_ms: 44.831392
+  duration_ms: 21.005306
   type: 'suite'
   ...
 1..1
-# tests 8
+# tests 9
 # suites 1
-# pass 8
+# pass 9
 # fail 0
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 366.273419
+# duration_ms 806.024101
 ```

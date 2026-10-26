@@ -12,11 +12,13 @@ import {
   verifyClauseQuotes,
 } from "@/lib/ambit";
 import {
+  BUILT_IN_SAMPLES,
+  BuiltInSampleId,
   SAMPLE_CONTRACT,
   SAMPLE_HOURLY_RATE,
   SAMPLE_MESSAGE,
   getSampleItems,
-  isBuiltInSampleInput,
+  matchBuiltInSample,
 } from "@/lib/sample";
 
 function formatDollars(n: number): string {
@@ -31,16 +33,17 @@ function formatDollars(n: number): string {
 
 export default function AmbitPage() {
   const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [activeSampleId, setActiveSampleId] =
+    useState<BuiltInSampleId | null>("architecture");
   const [contractText, setContractText] = useState<string>(SAMPLE_CONTRACT);
   const [messageText, setMessageText] = useState<string>(SAMPLE_MESSAGE);
   const [rateStr, setRateStr] = useState<string>(String(SAMPLE_HOURLY_RATE));
 
-  const [items, setItems] = useState<AmbitItem[]>(() =>
-    verifyClauseQuotes(SAMPLE_CONTRACT, getSampleItems())
-  );
-  const [hasAnalyzed, setHasAnalyzed] = useState<boolean>(true);
+  // No results show until "Analyze message" is clicked
+  const [items, setItems] = useState<AmbitItem[]>([]);
+  const [hasAnalyzed, setHasAnalyzed] = useState<boolean>(false);
   const [running, setRunning] = useState<boolean>(false);
-  const [stage, setStage] = useState<number>(3);
+  const [stage, setStage] = useState<number>(0);
 
   const [validationNotice, setValidationNotice] = useState<string | null>(null);
   const [missingKeyNotice, setMissingKeyNotice] = useState<boolean>(false);
@@ -59,6 +62,7 @@ export default function AmbitPage() {
   const isOverCharLimit =
     contractLen > MAX_INPUT_CHARS || messageLen > MAX_INPUT_CHARS;
 
+  const matchedSample = matchBuiltInSample(contractText, messageText);
   const parsedRate = clampNonNegative(rateStr, 100000);
   const summary = calculateAmbitSummary(items, parsedRate);
 
@@ -73,6 +77,8 @@ export default function AmbitPage() {
   function handleContractChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value;
     setContractText(val);
+    const matched = matchBuiltInSample(val, messageText);
+    setActiveSampleId(matched ? matched.id : null);
     setMissingKeyNotice(false);
     setApiErrorNotice(null);
     if (
@@ -86,6 +92,8 @@ export default function AmbitPage() {
   function handleMessageChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value;
     setMessageText(val);
+    const matched = matchBuiltInSample(contractText, val);
+    setActiveSampleId(matched ? matched.id : null);
     setMissingKeyNotice(false);
     setApiErrorNotice(null);
     if (
@@ -101,25 +109,47 @@ export default function AmbitPage() {
     setCopied(false);
   }
 
-  function handleLoadSample() {
+  function selectSample(sampleId: BuiltInSampleId, analyzeImmediately = false) {
     if (running) return;
-    setContractText(SAMPLE_CONTRACT);
-    setMessageText(SAMPLE_MESSAGE);
-    setRateStr(String(SAMPLE_HOURLY_RATE));
-    const verifiedSample = verifyClauseQuotes(SAMPLE_CONTRACT, getSampleItems());
-    setItems(verifiedSample);
-    setHasAnalyzed(true);
-    setStage(3);
+    const sample = BUILT_IN_SAMPLES[sampleId];
+    setActiveSampleId(sample.id);
+    setContractText(sample.contract);
+    setMessageText(sample.message);
+    setRateStr(String(sample.hourlyRate));
     setValidationNotice(null);
     setMissingKeyNotice(false);
     setApiErrorNotice(null);
     setEmptyRequestsNotice(false);
     setCopied(false);
     setClipboardFallbackNotice(false);
+
+    if (analyzeImmediately) {
+      const verified = verifyClauseQuotes(sample.contract, sample.getItems());
+      setItems(verified);
+      setHasAnalyzed(true);
+      setStage(3);
+    } else {
+      setItems([]);
+      setHasAnalyzed(false);
+      setStage(0);
+    }
+  }
+
+  function handleLoadSample() {
+    selectSample("architecture", false);
+  }
+
+  function handleLoadWebSample() {
+    selectSample("web-design", false);
+  }
+
+  function handleLoadAndAnalyzeArchitectureSample() {
+    selectSample("architecture", true);
   }
 
   function handleClear() {
     if (running) return;
+    setActiveSampleId(null);
     setContractText("");
     setMessageText("");
     setItems([]);
@@ -166,11 +196,16 @@ export default function AmbitPage() {
     setRunning(true);
     setStage(1);
 
-    if (isBuiltInSampleInput(contractText, messageText)) {
-      await new Promise((r) => setTimeout(r, 240));
+    const sampleMatch = matchBuiltInSample(contractText, messageText);
+    if (sampleMatch) {
+      await new Promise((r) => setTimeout(r, 220));
       setStage(2);
-      await new Promise((r) => setTimeout(r, 240));
-      const verified = verifyClauseQuotes(contractText, getSampleItems());
+      await new Promise((r) => setTimeout(r, 220));
+      const verified = verifyClauseQuotes(
+        contractText,
+        sampleMatch.getItems()
+      );
+      setActiveSampleId(sampleMatch.id);
       setItems(verified);
       setHasAnalyzed(true);
       setStage(3);
@@ -202,7 +237,7 @@ export default function AmbitPage() {
 
       if (!res.ok) {
         setApiErrorNotice(
-          data?.error || "Analysis didn't finish. Try again, or use the sample."
+          data?.error || "Analysis didn’t finish. Try again, or use the sample."
         );
         setItems([]);
         setHasAnalyzed(false);
@@ -228,7 +263,7 @@ export default function AmbitPage() {
       setRunning(false);
     } catch {
       setApiErrorNotice(
-        "Analysis didn't finish. Try again, or use the sample."
+        "Analysis didn’t finish. Try again, or use the sample."
       );
       setItems([]);
       setHasAnalyzed(false);
@@ -364,6 +399,25 @@ export default function AmbitPage() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            {matchedSample && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontSize: "13.5px",
+                  fontWeight: 600,
+                  padding: "7px 14px",
+                  border: "1px solid var(--rule)",
+                  borderRadius: "999px",
+                  background: "var(--well)",
+                  color: "var(--muted)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Saved sample ({matchedSample.label} — no API key required)
+              </span>
+            )}
             <span
               style={{
                 display: "inline-flex",
@@ -472,7 +526,7 @@ export default function AmbitPage() {
               display: "flex",
               flexDirection: "column",
               gap: "8px",
-              maxWidth: "740px",
+              maxWidth: "680px",
             }}
           >
             <h1
@@ -514,13 +568,34 @@ export default function AmbitPage() {
               data-testid="load-sample"
               onClick={handleLoadSample}
               disabled={running}
+              aria-pressed={activeSampleId === "architecture"}
               style={{
                 height: "42px",
                 padding: "0 16px",
                 fontSize: "14px",
+                borderColor:
+                  activeSampleId === "architecture"
+                    ? "var(--mint)"
+                    : undefined,
               }}
             >
               Load architecture sample
+            </button>
+            <button
+              className="am-ghost-pill"
+              data-testid="load-web-sample"
+              onClick={handleLoadWebSample}
+              disabled={running}
+              aria-pressed={activeSampleId === "web-design"}
+              style={{
+                height: "42px",
+                padding: "0 16px",
+                fontSize: "14px",
+                borderColor:
+                  activeSampleId === "web-design" ? "var(--mint)" : undefined,
+              }}
+            >
+              Load web design sample
             </button>
             <button
               className="am-ghost-pill"
@@ -882,7 +957,7 @@ export default function AmbitPage() {
                 <div>
                   <button
                     className="am-cta-mint"
-                    onClick={handleLoadSample}
+                    onClick={handleLoadAndAnalyzeArchitectureSample}
                     style={{
                       height: "42px",
                       padding: "0 20px",
@@ -914,7 +989,7 @@ export default function AmbitPage() {
                 <div>
                   <button
                     className="am-cta-mint"
-                    onClick={handleLoadSample}
+                    onClick={handleLoadAndAnalyzeArchitectureSample}
                     style={{
                       height: "42px",
                       padding: "0 18px",
@@ -957,13 +1032,13 @@ export default function AmbitPage() {
                     textAlign: "center",
                     padding: "40px 20px",
                     color: "var(--muted)",
-                    gap: "12px",
+                    gap: "14px",
                   }}
                 >
                   <div
                     style={{
-                      width: "48px",
-                      height: "48px",
+                      width: "52px",
+                      height: "52px",
                       borderRadius: "50%",
                       background: "var(--mint-soft)",
                       border: "1px solid var(--rule-strong)",
@@ -981,27 +1056,46 @@ export default function AmbitPage() {
                       stroke="currentColor"
                       strokeWidth="2"
                     >
-                      <path d="M12 3v18M3 12h18" />
+                      <path d="M5 12h14M13 6l6 6-6 6" />
                     </svg>
                   </div>
                   <div
                     className="am-display"
                     style={{
-                      fontSize: "20px",
+                      fontSize: "22px",
                       fontWeight: 700,
                       color: "var(--ink)",
                     }}
                   >
                     {running
                       ? analyzeLabel
-                      : "Ready to calculate your change order"}
+                      : "Click Analyze message to check scope"}
                   </div>
-                  <div style={{ fontSize: "15px", maxWidth: "36ch" }}>
-                    Paste your contract and client message on the left and click{" "}
-                    <strong style={{ color: "var(--ink)" }}>
-                      Analyze message
-                    </strong>
-                    , or load the built-in architecture sample.
+                  <div style={{ fontSize: "15.5px", maxWidth: "40ch" }}>
+                    {matchedSample ? (
+                      <>
+                        The{" "}
+                        <strong style={{ color: "var(--ink)" }}>
+                          {matchedSample.label.toLowerCase()}
+                        </strong>{" "}
+                        is loaded on the left (saved analysis — no API key
+                        required). Click{" "}
+                        <strong style={{ color: "var(--ink)" }}>
+                          Analyze message
+                        </strong>{" "}
+                        to verify every clause quote and calculate the change
+                        order.
+                      </>
+                    ) : (
+                      <>
+                        Paste your contract and client message on the left and
+                        click{" "}
+                        <strong style={{ color: "var(--ink)" }}>
+                          Analyze message
+                        </strong>
+                        , or choose one of the two built-in samples above.
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -1046,17 +1140,37 @@ export default function AmbitPage() {
 
                   <div
                     style={{
-                      padding: "7px 14px",
-                      borderRadius: "999px",
-                      background: "var(--mint-soft)",
-                      border: "1px solid var(--covBorder)",
-                      fontSize: "14px",
-                      fontWeight: 700,
-                      color: "var(--mint-text)",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                      gap: "6px",
                     }}
                   >
-                    {summary.extraCount} billable{" "}
-                    {summary.extraCount === 1 ? "item" : "items"}
+                    <div
+                      style={{
+                        padding: "7px 14px",
+                        borderRadius: "999px",
+                        background: "var(--mint-soft)",
+                        border: "1px solid var(--covBorder)",
+                        fontSize: "14px",
+                        fontWeight: 700,
+                        color: "var(--mint-text)",
+                      }}
+                    >
+                      {summary.extraCount} billable{" "}
+                      {summary.extraCount === 1 ? "item" : "items"}
+                    </div>
+                    {matchedSample && (
+                      <span
+                        style={{
+                          fontSize: "13px",
+                          color: "var(--muted)",
+                          fontWeight: 600,
+                        }}
+                      >
+                        Saved sample analysis
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -1372,7 +1486,7 @@ export default function AmbitPage() {
                     </span>
                   </div>
 
-                  {/* 5 Request Breakdown Pills */}
+                  {/* Request Breakdown Pills */}
                   <div
                     style={{
                       display: "flex",
@@ -1472,9 +1586,7 @@ export default function AmbitPage() {
                   client reply recalculate immediately in plain code.
                 </p>
               </div>
-              <span
-                style={{ fontSize: "14px", color: "var(--muted)" }}
-              >
+              <span style={{ fontSize: "14px", color: "var(--muted)" }}>
                 {summary.billNote}
               </span>
             </div>
@@ -1653,7 +1765,9 @@ export default function AmbitPage() {
                             &ldquo;{r.clauseQuote}&rdquo;
                           </span>
                         ) : (
-                          <span style={{ fontStyle: "italic", color: "var(--ink)" }}>
+                          <span
+                            style={{ fontStyle: "italic", color: "var(--ink)" }}
+                          >
                             No matching clause found
                           </span>
                         )}

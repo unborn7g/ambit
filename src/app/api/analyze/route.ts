@@ -8,6 +8,8 @@ import {
 export const runtime = "nodejs";
 
 const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-5-5";
+const ANALYSIS_FAILED_MESSAGE =
+  "Analysis didn’t finish. Try again, or use the sample.";
 
 const SYSTEM_PROMPT = [
   "You are an assistant that splits a client message into separate work requests and compares each request against a freelancer's contract deliverables.",
@@ -35,19 +37,30 @@ export async function POST(req: Request) {
     body && typeof body === "object"
       ? (body as Record<string, unknown>)
       : {};
-  const contract =
-    typeof record.contract === "string" ? record.contract : "";
-  const message =
-    typeof record.message === "string" ? record.message : "";
+  const rawContract =
+    typeof record.contractText === "string"
+      ? record.contractText
+      : typeof record.contract === "string"
+      ? record.contract
+      : "";
+  const rawMessage =
+    typeof record.messageText === "string"
+      ? record.messageText
+      : typeof record.message === "string"
+      ? record.message
+      : "";
 
-  if (contract.length > MAX_INPUT_CHARS || message.length > MAX_INPUT_CHARS) {
+  if (
+    rawContract.length > MAX_INPUT_CHARS ||
+    rawMessage.length > MAX_INPUT_CHARS
+  ) {
     return NextResponse.json(
       { error: "Keep each box under 6,000 characters." },
       { status: 400 }
     );
   }
 
-  if (!contract.trim() || !message.trim()) {
+  if (!rawContract.trim() || !rawMessage.trim()) {
     return NextResponse.json(
       {
         error:
@@ -80,6 +93,7 @@ export async function POST(req: Request) {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
       },
+      signal: AbortSignal.timeout(10000),
       body: JSON.stringify({
         model,
         max_tokens: 1200,
@@ -88,7 +102,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "user",
-            content: `CONTRACT DELIVERABLES:\n${contract}\n\nCLIENT MESSAGE:\n${message}`,
+            content: `CONTRACT DELIVERABLES:\n${rawContract}\n\nCLIENT MESSAGE:\n${rawMessage}`,
           },
         ],
       }),
@@ -96,10 +110,7 @@ export async function POST(req: Request) {
 
     if (!response.ok) {
       return NextResponse.json(
-        {
-          error:
-            "Could not reach the AI service — click Load architecture sample to use the built-in example or try again.",
-        },
+        { error: ANALYSIS_FAILED_MESSAGE },
         { status: 502 }
       );
     }
@@ -114,34 +125,36 @@ export async function POST(req: Request) {
     const endIdx = textBlock.lastIndexOf("]");
     if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
       return NextResponse.json(
-        {
-          error:
-            "Could not parse the AI response — click Load architecture sample to use the built-in example or try again.",
-        },
+        { error: ANALYSIS_FAILED_MESSAGE },
         { status: 502 }
       );
     }
 
     const parsed = JSON.parse(textBlock.slice(startIdx, endIdx + 1));
-    const validated = validateAiItems(parsed);
-    if (validated.length === 0) {
+    if (!Array.isArray(parsed)) {
       return NextResponse.json(
-        {
-          error:
-            "No actionable requests were returned — click Load architecture sample to use the built-in example or try again.",
-        },
+        { error: ANALYSIS_FAILED_MESSAGE },
         { status: 502 }
       );
     }
 
-    const verified = verifyClauseQuotes(contract, validated);
+    if (parsed.length === 0) {
+      return NextResponse.json({ items: [] });
+    }
+
+    const validated = validateAiItems(parsed);
+    if (validated.length === 0) {
+      return NextResponse.json(
+        { error: ANALYSIS_FAILED_MESSAGE },
+        { status: 502 }
+      );
+    }
+
+    const verified = verifyClauseQuotes(rawContract, validated);
     return NextResponse.json({ items: verified });
   } catch {
     return NextResponse.json(
-      {
-        error:
-          "Could not reach the AI service — click Load architecture sample to use the built-in example or try again.",
-      },
+      { error: ANALYSIS_FAILED_MESSAGE },
       { status: 502 }
     );
   }

@@ -12,7 +12,10 @@ import {
 import {
   SAMPLE_CONTRACT,
   SAMPLE_HOURLY_RATE,
+  WEB_DESIGN_SAMPLE_CONTRACT,
+  WEB_DESIGN_SAMPLE_HOURLY_RATE,
   getSampleItems,
+  getWebDesignSampleItems,
 } from "../src/lib/sample";
 
 describe("Ambit pure scope math, quote verifier, and validator", () => {
@@ -183,5 +186,42 @@ describe("Ambit pure scope math, quote verifier, and validator", () => {
     assert.match(reply, /within your agreed revision rounds/);
     assert.match(reply, /Nothing else in this message falls outside the agreed scope\./);
     assert.match(reply, /I will go ahead with the covered changes as agreed\./);
+  });
+
+  it("9. verifies all quotes in the second built-in Web Design sample against its contract and computes 14 h x $40 = $560", () => {
+    const verified = verifyClauseQuotes(
+      WEB_DESIGN_SAMPLE_CONTRACT,
+      getWebDesignSampleItems()
+    );
+
+    assert.equal(verified.length, 4);
+    assert.equal(verified[0].status, "Covered");
+    assert.equal(
+      verified[0].clauseQuote,
+      "Up to two rounds of copy and colour revisions before launch."
+    );
+    assert.equal(verified[1].status, "Extra");
+    assert.equal(
+      verified[1].clauseQuote,
+      "Custom illustrations or logo redesigns count as new work."
+    );
+    assert.equal(verified[1].hours, 4);
+    assert.equal(verified[2].status, "Extra");
+    assert.equal(
+      verified[2].clauseQuote,
+      "Four responsive pages: Home, Menu, About, and Contact."
+    );
+    assert.equal(verified[2].hours, 10);
+    assert.equal(verified[3].status, "Unclear");
+    assert.equal(verified[3].clauseQuote, "No matching clause found");
+    assert.equal(verified[3].hours, 2);
+
+    const summary = calculateAmbitSummary(
+      verified,
+      WEB_DESIGN_SAMPLE_HOURLY_RATE
+    );
+    assert.equal(summary.totalExtraHours, 14);
+    assert.equal(summary.totalExtraDollars, 560);
+    assert.equal(summary.formulaText, "Calculated in code: 14 h x $40 = $560");
   });
 });
