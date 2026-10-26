@@ -2,7 +2,7 @@
 
 **Know what's covered before you say yes.**
 
-- **Demo Video (2m 48s):** [https://youtu.be/7atZzsdPHU8](https://youtu.be/7atZzsdPHU8)
+- **Demo Video (2m 21s):** [https://youtu.be/dpUvbXVXh-k](https://youtu.be/dpUvbXVXh-k)
 - **Public GitHub Repository:** [https://github.com/unborn7g/ambit](https://github.com/unborn7g/ambit)
 
 Ambit is a scope-creep and change-order calculator for freelancers. Paste your contract deliverables and a client's WhatsApp or email message, set your hourly rate, and Ambit separates every ask into **Covered**, **Extra work**, or **Unclear**, verifies every quoted clause word-for-word against your contract, prices the extra hours in pure TypeScript, and writes a polite three-sentence change-order reply you can copy in one click.

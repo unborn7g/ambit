@@ -193,5 +193,5 @@ hackathon/ambit/
 
 ## Sharing and Verification (6-ship)
 - **Public GitHub Repository:** `https://github.com/unborn7g/ambit` (verified unauthenticated; includes `devpost/scope.md`, `devpost/prd.md`, `devpost/spec.md`, `devpost/checklist.md`, `devpost/app-map.html`, `LICENSE`, `README.md`, and `.env.example`, with `devpost/learner-profile.md` and `.env` excluded).
-- **Demo Video (YouTube, 2m 48s):** `https://youtu.be/7atZzsdPHU8` (shows the built-in architecture sample producing `15 h x $25 = $375`, flipping Request #4 from `Unclear` to `Extra` to produce `17 h x $25 = $425` and `20% / 80%`, copying the 3-sentence reply, the AI-vs-code boundary, the honest missing-key notice on custom text, and all 8 unit tests passing).
+- **Demo Video (YouTube, 2m 21s):** `https://youtu.be/dpUvbXVXh-k` (opens with the freelancer scope-creep problem before any app screen, shows the unanalyzed state on arrival, runs the built-in architecture sample producing `15 h x $25 = $375`, flips Request #4 from `Unclear` to `Extra` to produce `17 h x $25 = $425` and `20% / 80%`, copies the 3-sentence reply, demonstrates the second built-in Web Design sample producing `14 h x $40 = $560`, shows the honest missing-key notice on custom text, walks through the AI-vs-code boundary, and shows all 9 unit tests passing).
 
