@@ -162,7 +162,7 @@ hackathon/ambit/
 
 ## External Services and Dependencies
 - **Anthropic Messages API (`https://api.anthropic.com/v1/messages`):**
-  - **Keys & Env:** `ANTHROPIC_API_KEY` (server-side only) and `ANTHROPIC_MODEL` (optional, defaults to `"claude-sonnet-4-20250514"`).
+  - **Keys & Env:** `ANTHROPIC_API_KEY` (server-side only) and `ANTHROPIC_MODEL` (optional, defaults to `"claude-haiku-5-5"`; both the live route and default model string are untested with a live API key).
   - **Input Caps & Prompt-Injection Defense:** Max `6,000` characters per box; output restricted to the 4 validated fields (`requestText`, `clauseQuote`, `status`, `hours`) and capped at `8` items because untrusted contract or message text could contain instructions aimed at the AI.
   - **Privacy & Logging:** Requests are sent to the Anthropic API only when analyzing custom text with a configured key (disclosed in the page footer); Ambit never logs or stores the text.
 
@@ -183,4 +183,8 @@ hackathon/ambit/
 - **Learner Decision — Preserve valid AI hours on failed quotes / `Unclear` items:** Only fall back to `2 h` when suggested hours are missing or invalid (`<= 0`).
 - **Learner Decision — `tsx --test` TypeScript test runner with real output:** Run `npx tsx --test test/ambit.test.ts` and paste real terminal output into `devpost/checklist.md` and `README.md`.
 - **Learner Decision — Prompt-injection defense & `ANTHROPIC_MODEL` env var:** Restrict AI output strictly to the 4 validated fields (`<= 8` items), show a visible message over `6,000` characters, and read `ANTHROPIC_MODEL` from env.
-- **Open Item for `5-build`:** Ask the learner for their UI design prototype before building the UI slice in `5-build`.
+
+## Sharing and Verification (6-ship)
+- **Public GitHub Repository:** `https://github.com/unborn7g/ambit` (verified unauthenticated; includes `devpost/scope.md`, `devpost/prd.md`, `devpost/spec.md`, `devpost/checklist.md`, `devpost/app-map.html`, `LICENSE`, `README.md`, and `.env.example`, with `devpost/learner-profile.md` and `.env` excluded).
+- **Demo Video (YouTube, 2m 48s):** `https://youtu.be/7atZzsdPHU8` (shows the built-in architecture sample producing `15 h x $25 = $375`, flipping Request #4 from `Unclear` to `Extra` to produce `17 h x $25 = $425` and `20% / 80%`, copying the 3-sentence reply, the AI-vs-code boundary, the honest missing-key notice on custom text, and all 8 unit tests passing).
+

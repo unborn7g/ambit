@@ -19,88 +19,135 @@ import {
   isBuiltInSampleInput,
 } from "@/lib/sample";
 
-const MISSING_KEY_MESSAGE =
-  "Analyzing your own text needs an Anthropic API key, and this demo doesn’t have one set. You can still see how Ambit works on the built-in architecture sample.";
+function formatDollars(n: number): string {
+  const rounded = Math.round(n * 100) / 100;
+  return Number.isInteger(rounded)
+    ? rounded.toLocaleString("en-US")
+    : rounded.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+}
 
 export default function AmbitPage() {
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [contract, setContract] = useState<string>(SAMPLE_CONTRACT);
-  const [message, setMessage] = useState<string>(SAMPLE_MESSAGE);
-  const [usingSample, setUsingSample] = useState<boolean>(true);
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [contractText, setContractText] = useState<string>(SAMPLE_CONTRACT);
+  const [messageText, setMessageText] = useState<string>(SAMPLE_MESSAGE);
   const [rateStr, setRateStr] = useState<string>(String(SAMPLE_HOURLY_RATE));
-  const [stage, setStage] = useState<number>(0);
+
+  const [items, setItems] = useState<AmbitItem[]>(() =>
+    verifyClauseQuotes(SAMPLE_CONTRACT, getSampleItems())
+  );
+  const [hasAnalyzed, setHasAnalyzed] = useState<boolean>(true);
   const [running, setRunning] = useState<boolean>(false);
-  const [items, setItems] = useState<AmbitItem[]>([]);
-  const [hoursStrMap, setHoursStrMap] = useState<Record<number, string>>({});
-  const [copied, setCopied] = useState<false | "yes" | "no">(false);
-  const [inputNotice, setInputNotice] = useState<string>("");
-  const [showSampleAction, setShowSampleAction] = useState<boolean>(false);
+  const [stage, setStage] = useState<number>(3);
+
+  const [validationNotice, setValidationNotice] = useState<string | null>(null);
+  const [missingKeyNotice, setMissingKeyNotice] = useState<boolean>(false);
+  const [apiErrorNotice, setApiErrorNotice] = useState<string | null>(null);
+  const [emptyRequestsNotice, setEmptyRequestsNotice] = useState<boolean>(false);
+
+  const [copied, setCopied] = useState<boolean>(false);
+  const [clipboardFallbackNotice, setClipboardFallbackNotice] = useState<boolean>(false);
+  const [flashTick, setFlashTick] = useState<number>(0);
 
   const contractRef = useRef<HTMLTextAreaElement | null>(null);
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const [billFlashKey, setBillFlashKey] = useState<number>(0);
-  const [replyFlashKey, setReplyFlashKey] = useState<number>(0);
-  const prevBillRef = useRef<string>("");
-  const prevReplyRef = useRef<string>("");
+  const contractLen = contractText.length;
+  const messageLen = messageText.length;
+  const isOverCharLimit =
+    contractLen > MAX_INPUT_CHARS || messageLen > MAX_INPUT_CHARS;
+
+  const parsedRate = clampNonNegative(rateStr, 100000);
+  const summary = calculateAmbitSummary(items, parsedRate);
 
   useEffect(() => {
-    try {
-      if (
-        typeof window !== "undefined" &&
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches
-      ) {
-        setTheme("dark");
-      }
-    } catch {
-      // keep light
-    }
-  }, []);
+    setFlashTick((t) => t + 1);
+  }, [summary.totalExtraDollars, summary.replyText]);
 
-  const contractOverLimit = contract.length > MAX_INPUT_CHARS;
-  const messageOverLimit = message.length > MAX_INPUT_CHARS;
-  const overCharLimit = contractOverLimit || messageOverLimit;
-
-  const summary = calculateAmbitSummary(items, rateStr, usingSample);
-
-  useEffect(() => {
-    if (items.length === 0) return;
-    if (prevBillRef.current && prevBillRef.current !== summary.billText) {
-      setBillFlashKey((k) => k + 1);
-    }
-    prevBillRef.current = summary.billText;
-  }, [summary.billText, items.length]);
-
-  useEffect(() => {
-    if (items.length === 0) return;
-    if (prevReplyRef.current && prevReplyRef.current !== summary.replyText) {
-      setReplyFlashKey((k) => k + 1);
-    }
-    prevReplyRef.current = summary.replyText;
-  }, [summary.replyText, items.length]);
-
-  const toggleTheme = () => {
+  function toggleTheme() {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  };
+  }
 
-  const applyItems = (nextItems: AmbitItem[]) => {
-    setItems(nextItems);
-    const map: Record<number, string> = {};
-    for (const it of nextItems) {
-      map[it.id] = String(it.hours);
+  function handleContractChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    setContractText(val);
+    setMissingKeyNotice(false);
+    setApiErrorNotice(null);
+    if (
+      val.length <= MAX_INPUT_CHARS &&
+      messageText.length <= MAX_INPUT_CHARS
+    ) {
+      setValidationNotice(null);
     }
-    setHoursStrMap(map);
-  };
+  }
 
-  const handleAnalyze = async () => {
-    if (running) return;
+  function handleMessageChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    setMessageText(val);
+    setMissingKeyNotice(false);
+    setApiErrorNotice(null);
+    if (
+      contractText.length <= MAX_INPUT_CHARS &&
+      val.length <= MAX_INPUT_CHARS
+    ) {
+      setValidationNotice(null);
+    }
+  }
+
+  function handleRateChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setRateStr(e.target.value);
     setCopied(false);
+  }
 
-    if (overCharLimit) {
-      setShowSampleAction(false);
-      setInputNotice("Keep each box under 6,000 characters.");
-      if (contractOverLimit) {
+  function handleLoadSample() {
+    if (running) return;
+    setContractText(SAMPLE_CONTRACT);
+    setMessageText(SAMPLE_MESSAGE);
+    setRateStr(String(SAMPLE_HOURLY_RATE));
+    const verifiedSample = verifyClauseQuotes(SAMPLE_CONTRACT, getSampleItems());
+    setItems(verifiedSample);
+    setHasAnalyzed(true);
+    setStage(3);
+    setValidationNotice(null);
+    setMissingKeyNotice(false);
+    setApiErrorNotice(null);
+    setEmptyRequestsNotice(false);
+    setCopied(false);
+    setClipboardFallbackNotice(false);
+  }
+
+  function handleClear() {
+    if (running) return;
+    setContractText("");
+    setMessageText("");
+    setItems([]);
+    setHasAnalyzed(false);
+    setStage(0);
+    setValidationNotice(null);
+    setMissingKeyNotice(false);
+    setApiErrorNotice(null);
+    setEmptyRequestsNotice(false);
+    setCopied(false);
+    setClipboardFallbackNotice(false);
+  }
+
+  async function handleAnalyze() {
+    if (running) return;
+
+    setValidationNotice(null);
+    setMissingKeyNotice(false);
+    setApiErrorNotice(null);
+    setEmptyRequestsNotice(false);
+    setCopied(false);
+    setClipboardFallbackNotice(false);
+
+    if (!contractText.trim() || !messageText.trim()) {
+      setValidationNotice(
+        "Add both your contract deliverables and the client's message before analyzing."
+      );
+      if (!contractText.trim()) {
         contractRef.current?.focus();
       } else {
         messageRef.current?.focus();
@@ -108,42 +155,24 @@ export default function AmbitPage() {
       return;
     }
 
-    if (!contract.trim()) {
-      setShowSampleAction(false);
-      setInputNotice(
-        "Paste your contract deliverables above before running the analysis."
-      );
-      contractRef.current?.focus();
+    if (
+      contractText.length > MAX_INPUT_CHARS ||
+      messageText.length > MAX_INPUT_CHARS
+    ) {
+      setValidationNotice("Keep each box under 6,000 characters.");
       return;
     }
 
-    if (!message.trim()) {
-      setShowSampleAction(false);
-      setInputNotice(
-        "Paste your client's message above before running the analysis."
-      );
-      messageRef.current?.focus();
-      return;
-    }
-
-    setInputNotice("");
-    setShowSampleAction(false);
     setRunning(true);
     setStage(1);
-    setItems([]);
 
-    const isSample = isBuiltInSampleInput(contract, message);
-    setUsingSample(isSample);
-
-    if (isSample) {
-      await new Promise((r) => setTimeout(r, 260));
+    if (isBuiltInSampleInput(contractText, messageText)) {
+      await new Promise((r) => setTimeout(r, 240));
       setStage(2);
-      await new Promise((r) => setTimeout(r, 260));
-
-      const verified = verifyClauseQuotes(contract, getSampleItems());
-      applyItems(verified);
-      prevBillRef.current = "";
-      prevReplyRef.current = "";
+      await new Promise((r) => setTimeout(r, 240));
+      const verified = verifyClauseQuotes(contractText, getSampleItems());
+      setItems(verified);
+      setHasAnalyzed(true);
       setStage(3);
       setRunning(false);
       return;
@@ -153,208 +182,101 @@ export default function AmbitPage() {
       setStage(2);
       const res = await fetch("/api/analyze", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contract, message }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractText,
+          messageText,
+        }),
       });
-      const payload = (await res.json().catch(() => ({}))) as {
-        items?: AmbitItem[];
-        error?: string;
-        missingKey?: boolean;
-      };
 
-      if (!res.ok || !Array.isArray(payload.items)) {
-        const errMsg = payload.error || MISSING_KEY_MESSAGE;
-        setInputNotice(errMsg);
-        setShowSampleAction(true);
+      const data = await res.json().catch(() => ({}));
+
+      if (res.status === 503 && data?.missingKey) {
+        setMissingKeyNotice(true);
+        setItems([]);
+        setHasAnalyzed(false);
         setStage(0);
         setRunning(false);
         return;
       }
 
-      applyItems(payload.items);
-      prevBillRef.current = "";
-      prevReplyRef.current = "";
+      if (!res.ok) {
+        setApiErrorNotice(
+          data?.error || "Analysis didn't finish. Try again, or use the sample."
+        );
+        setItems([]);
+        setHasAnalyzed(false);
+        setStage(0);
+        setRunning(false);
+        return;
+      }
+
+      const rawItems: AmbitItem[] = Array.isArray(data?.items)
+        ? data.items
+        : [];
+      const verified = verifyClauseQuotes(contractText, rawItems);
+
+      if (verified.length === 0) {
+        setEmptyRequestsNotice(true);
+        setItems([]);
+        setHasAnalyzed(true);
+      } else {
+        setItems(verified);
+        setHasAnalyzed(true);
+      }
       setStage(3);
       setRunning(false);
     } catch {
-      setInputNotice(
-        "Could not reach the AI service — click Load architecture sample to use the built-in example or try again."
+      setApiErrorNotice(
+        "Analysis didn't finish. Try again, or use the sample."
       );
-      setShowSampleAction(true);
+      setItems([]);
+      setHasAnalyzed(false);
       setStage(0);
       setRunning(false);
     }
-  };
+  }
 
-  const handleLoadSample = () => {
-    if (running) return;
-    setContract(SAMPLE_CONTRACT);
-    setMessage(SAMPLE_MESSAGE);
-    setUsingSample(true);
-    setRateStr(String(SAMPLE_HOURLY_RATE));
-    setItems([]);
-    setStage(0);
-    setCopied(false);
-    setInputNotice("");
-    setShowSampleAction(false);
-  };
-
-  const handleLoadAndRunSample = () => {
-    if (running) return;
-    setContract(SAMPLE_CONTRACT);
-    setMessage(SAMPLE_MESSAGE);
-    setUsingSample(true);
-    setRateStr(String(SAMPLE_HOURLY_RATE));
-    setCopied(false);
-    setInputNotice("");
-    setShowSampleAction(false);
-    const verified = verifyClauseQuotes(SAMPLE_CONTRACT, getSampleItems());
-    applyItems(verified);
-    prevBillRef.current = "";
-    prevReplyRef.current = "";
-    setStage(3);
-  };
-
-  const handleClear = () => {
-    if (running) return;
-    setContract("");
-    setMessage("");
-    setUsingSample(false);
-    setItems([]);
-    setStage(0);
-    setCopied(false);
-    setInputNotice("");
-    setShowSampleAction(false);
-    setTimeout(() => {
-      contractRef.current?.focus();
-    }, 0);
-  };
-
-  const handleSetFlag = (id: number, nextFlag: RequestStatus) => {
-    setCopied(false);
+  function handleSetFlag(id: number, nextStatus: RequestStatus) {
     setItems((prev) =>
-      prev.map((it) => {
-        if (it.id !== id) return it;
-        const updated = flipItemStatus(it, nextFlag);
-        setHoursStrMap((m) => ({ ...m, [id]: String(updated.hours) }));
-        return updated;
-      })
+      prev.map((item) =>
+        item.id === id ? flipItemStatus(item, nextStatus) : item
+      )
     );
-  };
-
-  const handleSetHours = (id: number, rawVal: string) => {
     setCopied(false);
-    const num = Number(rawVal);
-    const normalizedStr =
-      rawVal.trim() !== "" && Number.isFinite(num) && num < 0 ? "0" : rawVal;
-    setHoursStrMap((m) => ({ ...m, [id]: normalizedStr }));
+  }
+
+  function handleSetHours(id: number, rawVal: string) {
     const clamped = clampNonNegative(rawVal, 999);
     setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, hours: clamped } : it))
+      prev.map((item) =>
+        item.id === id ? { ...item, hours: clamped } : item
+      )
     );
-  };
-
-  const handleBlurHours = (id: number) => {
-    const raw = hoursStrMap[id] ?? "";
-    const clamped = clampNonNegative(raw, 999);
-    setHoursStrMap((m) => ({ ...m, [id]: String(clamped) }));
-    setItems((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, hours: clamped } : it))
-    );
-  };
-
-  const handleRateChange = (rawVal: string) => {
     setCopied(false);
-    const num = Number(rawVal);
-    if (rawVal.trim() !== "" && Number.isFinite(num) && num < 0) {
-      setRateStr("0");
-      return;
-    }
-    setRateStr(rawVal);
-  };
+  }
 
-  const handleRateBlur = () => {
-    const clamped = clampNonNegative(rateStr, 99999);
-    setRateStr(String(clamped));
-  };
-
-  const handleCopyReply = async () => {
-    let ok = false;
+  async function handleCopy() {
+    if (!summary.replyText) return;
     try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(summary.replyText);
-        ok = true;
-      }
+      await navigator.clipboard.writeText(summary.replyText);
+      setCopied(true);
+      setClipboardFallbackNotice(false);
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
     } catch {
-      ok = false;
+      setClipboardFallbackNotice(true);
     }
-    setCopied(ok ? "yes" : "no");
-    setTimeout(() => {
-      setCopied(false);
-    }, 2000);
-  };
-
-  const isDark = theme === "dark";
-  const hasItems = items.length > 0;
-  const totalCount = Math.max(items.length, 1);
-  const unitPct = 100 / totalCount;
-
-  const covItems = items.filter((x) => x.status === "Covered");
-  const extItems = items.filter((x) => x.status === "Extra");
-  const uncItems = items.filter((x) => x.status === "Unclear");
-
-  // Count-based bar geometry (PRD rule: each request occupies 1 / totalCount of the bar width)
-  const laneA = covItems.map((x, idx) => ({
-    key: `a-${x.id}`,
-    leftPct: idx * unitPct,
-    widthPct: unitPct,
-    label: `${x.short} · 0 h`,
-    title: `${x.short}: Covered (0 h)`,
-  }));
-
-  const laneB: Array<{
-    key: string;
-    leftPct: number;
-    widthPct: number;
-    isUnclear: boolean;
-    label: string;
-    title: string;
-  }> = [];
-
-  extItems.forEach((x, idx) => {
-    laneB.push({
-      key: `e-${x.id}`,
-      leftPct: idx * unitPct,
-      widthPct: unitPct,
-      isUnclear: false,
-      label: `${x.short} · ${formatHours(x.hours)} h`,
-      title: `${x.short}: ${formatHours(x.hours)} h extra`,
-    });
-  });
-
-  uncItems.forEach((x, idx) => {
-    laneB.push({
-      key: `u-${x.id}`,
-      leftPct: (extItems.length + idx) * unitPct,
-      widthPct: unitPct,
-      isUnclear: true,
-      label: "Unclear: not priced yet",
-      title: `${x.short}: Unclear (${formatHours(x.hours)} h if added)`,
-    });
-  });
+  }
 
   const analyzeLabel = running
     ? stage === 1
-      ? "Splitting the message…"
-      : "Matching clauses…"
-    : hasItems
-      ? "Analyze again"
-      : "Analyze message";
+      ? "Reading contract..."
+      : "Matching clauses..."
+    : "Analyze message";
 
-  const analyzePct = running ? Math.round((stage / 3) * 100) : 0;
-  const visibleBanner = overCharLimit
-    ? "Keep each box under 6,000 characters."
-    : inputNotice;
+  const showResults = hasAnalyzed && items.length > 0 && !running;
 
   return (
     <div
@@ -362,58 +284,78 @@ export default function AmbitPage() {
       data-theme={theme}
       style={{
         color: "var(--ink)",
-        backgroundColor: "var(--bg)",
-        fontFamily: "'Instrument Sans', system-ui, sans-serif",
+        fontFamily: "var(--font-instrument), system-ui, sans-serif",
         fontSize: "16px",
         lineHeight: 1.55,
         minHeight: "100vh",
       }}
     >
+      <div className="am-backdrop-rings" aria-hidden="true" />
+
+      {/* Top Sticky Glass Header */}
       <header
         style={{
           position: "sticky",
           top: 0,
-          zIndex: 20,
-          background: "var(--glass)",
+          zIndex: 30,
+          background: "var(--glass-header)",
           backdropFilter: "blur(18px)",
           WebkitBackdropFilter: "blur(18px)",
+          borderBottom: "1px solid var(--rule)",
         }}
       >
         <div
           style={{
-            maxWidth: "1160px",
+            maxWidth: "1260px",
             margin: "0 auto",
-            padding: "12px 28px",
+            padding: "14px 24px",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             gap: "12px",
-            boxSizing: "border-box",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
-              <rect x="2" y="2" width="28" height="28" rx="9" fill="var(--ink)" />
-              <path
-                d="M9 21.5L16 9l7 12.5"
-                fill="none"
-                stroke="var(--brass)"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M12 17.5h8"
-                stroke="var(--bg)"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-              />
-            </svg>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div
+              style={{
+                width: "36px",
+                height: "36px",
+                borderRadius: "10px",
+                background: "var(--mint-soft)",
+                border: "1px solid var(--rule-strong)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 0 18px var(--mint-glow)",
+              }}
+            >
+              <svg
+                viewBox="0 0 32 32"
+                width="20"
+                height="20"
+                aria-hidden="true"
+              >
+                <path
+                  d="M8 23L16 7l8 16"
+                  fill="none"
+                  stroke="var(--mint)"
+                  strokeWidth="2.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <path
+                  d="M11.2 17.5h9.6"
+                  stroke="var(--ink)"
+                  strokeWidth="2.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
             <span
               className="am-display"
               style={{
                 fontSize: "24px",
-                fontWeight: 700,
+                fontWeight: 800,
                 letterSpacing: "-0.03em",
               }}
             >
@@ -421,471 +363,368 @@ export default function AmbitPage() {
             </span>
           </div>
 
-          <nav className="am-links" aria-label="Primary">
-            <a className="am-link" href="#workbench">
-              Your job
-            </a>
-            <a className="am-link" href="#results">
-              What&apos;s covered
-            </a>
-            <a className="am-link" href="#reply">
-              Reply
-            </a>
-          </nav>
-
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <span
               style={{
-                fontSize: "13px",
-                padding: "6px 12px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "14px",
+                fontWeight: 600,
+                padding: "7px 14px",
                 border: "1px solid var(--rule)",
                 borderRadius: "999px",
+                background: "var(--well)",
                 color: "var(--muted)",
                 whiteSpace: "nowrap",
               }}
             >
+              <span
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  background: "var(--mint)",
+                  boxShadow: "0 0 8px var(--mint)",
+                }}
+              />
               Not legal advice
             </span>
             <button
-              type="button"
-              className="am-icon-btn"
+              className="am-ghost-pill"
               data-testid="theme-toggle"
               onClick={toggleTheme}
-              aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={
+                theme === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
               style={{
-                width: "44px",
-                height: "44px",
-                borderRadius: "50%",
-                border: "1px solid var(--rule)",
-                background: "transparent",
-                color: "var(--ink)",
-                cursor: "pointer",
+                width: "42px",
+                height: "42px",
+                padding: 0,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
               }}
             >
-              {isDark ? (
-                <span key="dark" className="am-spin">
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="20"
-                    height="20"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <circle cx="12" cy="12" r="4" />
-                    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-                  </svg>
-                </span>
+              {theme === "dark" ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  width="19"
+                  height="19"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+                </svg>
               ) : (
-                <span key="light" className="am-spin">
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="20"
-                    height="20"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7z" />
-                  </svg>
-                </span>
+                <svg
+                  viewBox="0 0 24 24"
+                  width="19"
+                  height="19"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.9"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5a8.5 8.5 0 1 0 10.7 10.7z" />
+                </svg>
               )}
             </button>
           </div>
         </div>
       </header>
 
-      <div
+      <main
         style={{
-          maxWidth: "1160px",
+          position: "relative",
+          zIndex: 1,
+          maxWidth: "1260px",
           margin: "0 auto",
-          padding: "0 28px 80px",
-          boxSizing: "border-box",
+          padding: "28px 24px 72px",
           display: "flex",
           flexDirection: "column",
-          gap: "88px",
+          gap: "24px",
         }}
       >
+        {/* Hero Banner (No Eyebrow, No Green Single-Word Highlight, No 3 Feature Cards) */}
         <section
+          className="am-glass-card"
           style={{
+            padding: "24px 28px",
             display: "flex",
-            flexDirection: "column",
-            gap: "36px",
-            paddingTop: "72px",
+            flexWrap: "wrap",
+            alignItems: "flex-end",
+            justifyContent: "space-between",
+            gap: "16px 32px",
           }}
         >
-          <h1
-            className="am-display am-rise"
-            style={{
-              margin: 0,
-              fontWeight: 700,
-              fontSize: "clamp(46px, 8.4vw, 112px)",
-              lineHeight: 0.96,
-              letterSpacing: "-0.045em",
-              maxWidth: "11em",
-              textWrap: "balance",
-            }}
-          >
-            Know what&apos;s covered before you say yes.
-          </h1>
-          <p
-            className="am-rise"
-            style={{
-              animationDelay: ".12s",
-              margin: 0,
-              fontSize: "clamp(18px, 2vw, 22px)",
-              lineHeight: 1.5,
-              color: "var(--muted)",
-              maxWidth: "34em",
-              textWrap: "pretty",
-            }}
-          >
-            Paste your contract and your client&apos;s message. Ambit sorts every
-            request into covered, extra work or unclear, prices the extras, and
-            writes your reply.
-          </p>
-
           <div
-            aria-hidden="true"
             style={{
               display: "flex",
               flexDirection: "column",
-              gap: "14px",
-              marginTop: "8px",
+              gap: "8px",
+              maxWidth: "740px",
             }}
           >
-            <div style={{ display: "flex", gap: "8px", height: "84px" }}>
-              <div
-                className="am-g1"
-                style={{
-                  flex: 1,
-                  background: "var(--cov)",
-                  borderRadius: "18px",
-                  display: "flex",
-                  alignItems: "flex-end",
-                  padding: "14px 18px",
-                  boxSizing: "border-box",
-                  color: "var(--onCov)",
-                  fontWeight: 600,
-                  fontSize: "15px",
-                }}
-              >
-                Covered
-              </div>
-              <div
-                className="am-g2"
-                style={{
-                  flex: 3,
-                  background: "var(--ext)",
-                  borderRadius: "18px",
-                  display: "flex",
-                  alignItems: "flex-end",
-                  padding: "14px 18px",
-                  boxSizing: "border-box",
-                  color: "var(--onExt)",
-                  fontWeight: 600,
-                  fontSize: "15px",
-                }}
-              >
-                Extra work
-              </div>
-              <div
-                className="am-g3"
-                style={{
-                  flex: 1,
-                  backgroundColor: "var(--uncSoft)",
-                  backgroundImage:
-                    "repeating-linear-gradient(135deg, var(--uncStripe) 0 1px, transparent 1px 8px)",
-                  border: "1.5px dashed var(--unc)",
-                  borderRadius: "18px",
-                  display: "flex",
-                  alignItems: "flex-end",
-                  padding: "10px 12px",
-                  boxSizing: "border-box",
-                  color: "var(--uncText)",
-                  fontWeight: 600,
-                  fontSize: "15px",
-                }}
-              >
-                <span
-                  style={{
-                    background: "var(--uncSoft)",
-                    color: "var(--uncText)",
-                    padding: "3px 10px",
-                    borderRadius: "999px",
-                    boxShadow: "0 0 0 1px var(--rule)",
-                  }}
-                >
-                  Unclear
-                </span>
-              </div>
-            </div>
+            <h1
+              className="am-display"
+              style={{
+                margin: 0,
+                fontWeight: 800,
+                fontSize: "clamp(30px, 4.2vw, 46px)",
+                lineHeight: 1.05,
+                letterSpacing: "-0.035em",
+                color: "var(--ink)",
+              }}
+            >
+              Know what&apos;s covered before you say yes.
+            </h1>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "16px",
+                color: "var(--muted)",
+                maxWidth: "62ch",
+              }}
+            >
+              Paste your contract deliverables and your client&apos;s message.
+              Ambit sorts every request into covered, extra work, or unclear,
+              prices the extras in code, and writes your reply.
+            </p>
           </div>
 
           <div
             style={{
               display: "flex",
               flexWrap: "wrap",
-              gap: "12px 48px",
-              fontSize: "16px",
-              color: "var(--muted)",
-              maxWidth: "44em",
+              gap: "10px",
             }}
           >
-            <div style={{ flex: "1 1 260px" }}>
-              <strong style={{ color: "var(--ink)", fontWeight: 600 }}>
-                The AI reads.
-              </strong>{" "}
-              It splits the message into requests and quotes the clause that
-              matches.
-            </div>
-            <div style={{ flex: "1 1 260px" }}>
-              <strong style={{ color: "var(--ink)", fontWeight: 600 }}>
-                Plain code counts.
-              </strong>{" "}
-              Hours, rate, bar and reply numbers are calculated, never guessed.
-            </div>
+            <button
+              className="am-ghost-pill"
+              data-testid="load-sample"
+              onClick={handleLoadSample}
+              disabled={running}
+              style={{
+                height: "42px",
+                padding: "0 16px",
+                fontSize: "14px",
+              }}
+            >
+              Load architecture sample
+            </button>
+            <button
+              className="am-ghost-pill"
+              data-testid="clear"
+              onClick={handleClear}
+              disabled={running}
+              style={{
+                height: "42px",
+                padding: "0 16px",
+                fontSize: "14px",
+              }}
+            >
+              Clear and paste your own
+            </button>
           </div>
         </section>
 
+        {/* Split-Screen Top Workbench: Left = Inputs | Right = Live Verdict & Scope Bar */}
         <section
           id="workbench"
-          aria-labelledby="inputs-title"
+          className="am-split-grid"
           style={{
-            scrollMarginTop: "84px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "28px",
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.08fr) minmax(0, 0.92fr)",
+            gap: "20px",
+            alignItems: "stretch",
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <h2
-              id="inputs-title"
-              className="am-display"
-              style={{
-                margin: 0,
-                fontWeight: 700,
-                fontSize: "clamp(32px, 4.4vw, 52px)",
-                letterSpacing: "-0.035em",
-                lineHeight: 1.04,
-              }}
-            >
-              Start with your job
-            </h2>
-            <p style={{ margin: 0, color: "var(--muted)", fontSize: "17px" }}>
-              A sample architectural visualization job is loaded. Edit it, or
-              paste your own.
-            </p>
-          </div>
-
+          {/* Left Panel: Contract & Client Message Input Checker */}
           <div
+            className="am-glass-card"
             style={{
-              background: "var(--panel)",
-              borderRadius: "28px",
-              boxShadow: "var(--lift)",
-              padding: "clamp(16px, 3vw, 32px)",
-              boxSizing: "border-box",
+              padding: "24px",
               display: "flex",
               flexDirection: "column",
-              gap: "24px",
+              justifyContent: "space-between",
+              gap: "18px",
             }}
           >
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "24px" }}>
-              <div
+            <div>
+              <h2
+                id="inputs-title"
+                className="am-display"
                 style={{
-                  flex: "1 1 440px",
-                  minWidth: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
+                  margin: 0,
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                  }}
-                >
-                  <label
-                    htmlFor="contract"
-                    style={{ fontSize: "15px", fontWeight: 600 }}
-                  >
-                    Contract deliverables
-                  </label>
-                  <span
-                    className="am-num"
-                    style={{
-                      fontSize: "13px",
-                      color: contractOverLimit ? "var(--extText)" : "var(--muted)",
-                      fontWeight: contractOverLimit ? 600 : 400,
-                    }}
-                  >
-                    {contract.length.toLocaleString()} /{" "}
-                    {MAX_INPUT_CHARS.toLocaleString()}
-                  </span>
-                </div>
-                <textarea
-                  ref={contractRef}
-                  id="contract"
-                  data-testid="contract"
-                  className="am-field"
-                  value={contract}
-                  onChange={(e) => {
-                    const nextVal = e.target.value;
-                    setContract(nextVal);
-                    setUsingSample(isBuiltInSampleInput(nextVal, message));
-                    if (inputNotice) {
-                      setInputNotice("");
-                      setShowSampleAction(false);
-                    }
-                  }}
-                  rows={9}
-                  style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    minHeight: "250px",
-                    padding: "18px 20px",
-                    border: contractOverLimit ? "1.5px solid var(--ext)" : 0,
-                    borderRadius: "18px",
-                    background: "var(--well)",
-                    color: "var(--ink)",
-                    fontFamily: "inherit",
-                    fontSize: "16px",
-                    lineHeight: 1.6,
-                    resize: "vertical",
-                  }}
-                />
-              </div>
-              <div
+                Your job
+              </h2>
+              <p
                 style={{
-                  flex: "1 1 440px",
-                  minWidth: 0,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
+                  margin: "4px 0 0",
+                  fontSize: "15px",
+                  color: "var(--muted)",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                  }}
-                >
-                  <label
-                    htmlFor="message"
-                    style={{ fontSize: "15px", fontWeight: 600 }}
-                  >
-                    Client&apos;s WhatsApp or email message
-                  </label>
-                  <span
-                    className="am-num"
-                    style={{
-                      fontSize: "13px",
-                      color: messageOverLimit ? "var(--extText)" : "var(--muted)",
-                      fontWeight: messageOverLimit ? 600 : 400,
-                    }}
-                  >
-                    {message.length.toLocaleString()} /{" "}
-                    {MAX_INPUT_CHARS.toLocaleString()}
-                  </span>
-                </div>
-                <textarea
-                  ref={messageRef}
-                  id="message"
-                  data-testid="message"
-                  className="am-field"
-                  value={message}
-                  onChange={(e) => {
-                    const nextVal = e.target.value;
-                    setMessage(nextVal);
-                    setUsingSample(isBuiltInSampleInput(contract, nextVal));
-                    if (inputNotice) {
-                      setInputNotice("");
-                      setShowSampleAction(false);
-                    }
-                  }}
-                  rows={9}
-                  style={{
-                    width: "100%",
-                    boxSizing: "border-box",
-                    minHeight: "250px",
-                    padding: "18px 20px",
-                    border: messageOverLimit ? "1.5px solid var(--ext)" : 0,
-                    borderRadius: "18px",
-                    background: "var(--well)",
-                    color: "var(--ink)",
-                    fontFamily: "inherit",
-                    fontSize: "16px",
-                    lineHeight: 1.6,
-                    resize: "vertical",
-                  }}
-                />
-              </div>
+                Signed contract deliverables and the client&apos;s incoming
+                message.
+              </p>
             </div>
 
-            {visibleBanner && (
+            {/* Contract Field (Taller so built-in sample has no inner scroll) */}
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+            >
               <div
-                role="alert"
-                data-testid="input-notice"
                 style={{
-                  padding: "14px 18px",
-                  borderRadius: "16px",
-                  background: "var(--extSoft)",
-                  color: "var(--extText)",
-                  fontSize: "15px",
-                  fontWeight: 600,
                   display: "flex",
-                  flexWrap: "wrap",
-                  alignItems: "center",
                   justifyContent: "space-between",
-                  gap: "12px",
+                  alignItems: "center",
                 }}
               >
-                <span>{visibleBanner}</span>
-                {showSampleAction && !overCharLimit && (
-                  <button
-                    type="button"
-                    className="am-brass"
-                    data-testid="notice-load-sample"
-                    onClick={handleLoadAndRunSample}
+                <label
+                  htmlFor="contract"
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <span
                     style={{
-                      minHeight: "40px",
-                      padding: "0 18px",
-                      border: 0,
-                      borderRadius: "999px",
-                      background: "var(--brass)",
-                      color: "var(--onBrass)",
-                      fontSize: "14px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
+                      width: "9px",
+                      height: "9px",
+                      borderRadius: "2px",
+                      background: "var(--cov)",
                     }}
-                  >
-                    Load architecture sample
-                  </button>
-                )}
+                  />
+                  Contract deliverables
+                </label>
+                <span
+                  className="am-mono"
+                  style={{
+                    fontSize: "13px",
+                    color:
+                      contractLen > MAX_INPUT_CHARS
+                        ? "var(--extText)"
+                        : "var(--muted)",
+                  }}
+                >
+                  {contractLen.toLocaleString()} /{" "}
+                  {MAX_INPUT_CHARS.toLocaleString()}
+                </span>
               </div>
-            )}
+              <textarea
+                id="contract"
+                ref={contractRef}
+                data-testid="contract"
+                className="am-input-well"
+                value={contractText}
+                onChange={handleContractChange}
+                rows={8}
+                placeholder="Paste the scope or deliverables section of your signed contract..."
+                style={{
+                  width: "100%",
+                  minHeight: "220px",
+                  padding: "14px 16px",
+                  fontSize: "15px",
+                  lineHeight: 1.55,
+                  resize: "vertical",
+                }}
+              />
+            </div>
 
+            {/* Client Message Field (Taller so built-in sample has no inner scroll) */}
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <label
+                  htmlFor="message"
+                  style={{
+                    fontSize: "15px",
+                    fontWeight: 600,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: "9px",
+                      height: "9px",
+                      borderRadius: "2px",
+                      background: "var(--ext)",
+                    }}
+                  />
+                  Client&apos;s WhatsApp or email message
+                </label>
+                <span
+                  className="am-mono"
+                  style={{
+                    fontSize: "13px",
+                    color:
+                      messageLen > MAX_INPUT_CHARS
+                        ? "var(--extText)"
+                        : "var(--muted)",
+                  }}
+                >
+                  {messageLen.toLocaleString()} /{" "}
+                  {MAX_INPUT_CHARS.toLocaleString()}
+                </span>
+              </div>
+              <textarea
+                id="message"
+                ref={messageRef}
+                data-testid="message"
+                className="am-input-well"
+                value={messageText}
+                onChange={handleMessageChange}
+                rows={8}
+                placeholder="Paste the client's revision request message..."
+                style={{
+                  width: "100%",
+                  minHeight: "220px",
+                  padding: "14px 16px",
+                  fontSize: "15px",
+                  lineHeight: 1.55,
+                  resize: "vertical",
+                }}
+              />
+            </div>
+
+            {/* Rate + Analyze Action Bar */}
             <div
               style={{
                 display: "flex",
                 flexWrap: "wrap",
                 alignItems: "center",
-                gap: "12px 16px",
+                justifyContent: "space-between",
+                gap: "12px",
+                paddingTop: "8px",
+                borderTop: "1px solid var(--rule)",
               }}
             >
               <div
@@ -893,22 +732,30 @@ export default function AmbitPage() {
                   display: "flex",
                   alignItems: "center",
                   gap: "10px",
-                  height: "60px",
-                  padding: "0 20px",
+                  height: "48px",
+                  padding: "0 16px",
                   borderRadius: "999px",
                   background: "var(--well)",
-                  boxSizing: "border-box",
+                  border: "1px solid var(--rule)",
                 }}
               >
                 <label
                   htmlFor="rate"
-                  style={{ fontSize: "15px", color: "var(--muted)" }}
+                  style={{
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "var(--muted)",
+                  }}
                 >
                   Hourly rate
                 </label>
                 <span
                   className="am-num"
-                  style={{ fontSize: "20px", color: "var(--muted)" }}
+                  style={{
+                    fontSize: "18px",
+                    fontWeight: 700,
+                    color: "var(--mint)",
+                  }}
                 >
                   $
                 </span>
@@ -919,43 +766,37 @@ export default function AmbitPage() {
                   min="0"
                   step="1"
                   value={rateStr}
-                  onChange={(e) => handleRateChange(e.target.value)}
-                  onBlur={handleRateBlur}
+                  onChange={handleRateChange}
                   style={{
-                    width: "70px",
+                    width: "64px",
                     border: 0,
                     background: "transparent",
                     color: "var(--ink)",
                     fontFamily:
-                      "'Bricolage Grotesque', 'Instrument Sans', sans-serif",
+                      "var(--font-bricolage), var(--font-instrument), sans-serif",
                     fontVariantNumeric: "tabular-nums",
-                    fontSize: "24px",
-                    fontWeight: 600,
-                    outlineOffset: "6px",
+                    fontSize: "19px",
+                    fontWeight: 700,
                   }}
                 />
+                <span style={{ fontSize: "14px", color: "var(--muted)" }}>
+                  / hr
+                </span>
               </div>
 
               <button
-                type="button"
-                className="am-btn"
+                className="am-cta-mint"
                 data-testid="analyze"
                 onClick={handleAnalyze}
                 disabled={running}
                 style={{
-                  height: "60px",
-                  padding: "0 34px",
-                  border: 0,
-                  borderRadius: "999px",
-                  background: "var(--ink)",
-                  color: "var(--bg)",
-                  fontSize: "18px",
-                  fontWeight: 600,
-                  cursor: running ? "progress" : "pointer",
-                  opacity: running ? 0.85 : 1,
+                  height: "48px",
+                  padding: "0 26px",
+                  fontSize: "16px",
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: "12px",
+                  gap: "10px",
+                  opacity: running ? 0.75 : 1,
                 }}
               >
                 <span>{analyzeLabel}</span>
@@ -966,237 +807,296 @@ export default function AmbitPage() {
                   height="18"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="2.4"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   aria-hidden="true"
                 >
                   <path d="M5 12h14M13 6l6 6-6 6" />
                 </svg>
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    bottom: 0,
-                    height: "3px",
-                    background: "var(--brass)",
-                    transition: "width .6s ease",
-                    width: `${analyzePct}%`,
-                  }}
-                />
               </button>
+            </div>
 
+            {(isOverCharLimit || validationNotice) && (
               <div
+                role="alert"
                 style={{
-                  display: "flex",
-                  gap: "4px",
-                  marginLeft: "auto",
+                  padding: "12px 16px",
+                  borderRadius: "12px",
+                  background: "var(--extSoft)",
+                  color: "var(--extText)",
+                  border: "1px solid var(--extBorder)",
+                  fontSize: "14px",
+                  fontWeight: 600,
                 }}
               >
-                <button
-                  type="button"
-                  className="am-text-btn"
-                  data-testid="load-sample"
-                  onClick={handleLoadSample}
-                  disabled={running}
-                  style={{
-                    minHeight: "44px",
-                    padding: "0 16px",
-                    border: 0,
-                    borderRadius: "999px",
-                    background: "transparent",
-                    color: "var(--muted)",
-                    fontSize: "15px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  Load architecture sample
-                </button>
-                <button
-                  type="button"
-                  className="am-text-btn"
-                  data-testid="clear"
-                  onClick={handleClear}
-                  disabled={running}
-                  style={{
-                    minHeight: "44px",
-                    padding: "0 16px",
-                    border: 0,
-                    borderRadius: "999px",
-                    background: "transparent",
-                    color: "var(--muted)",
-                    fontSize: "15px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  Clear and paste your own
-                </button>
+                {isOverCharLimit
+                  ? "Keep each box under 6,000 characters."
+                  : validationNotice}
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section
-          id="results"
-          aria-labelledby="results-title"
-          aria-live="polite"
-          style={{
-            scrollMarginTop: "84px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "32px",
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <h2
-              id="results-title"
-              className="am-display"
-              style={{
-                margin: 0,
-                fontWeight: 700,
-                fontSize: "clamp(32px, 4.4vw, 52px)",
-                letterSpacing: "-0.035em",
-                lineHeight: 1.04,
-              }}
-            >
-              What&apos;s covered
-            </h2>
-            <p style={{ margin: 0, color: "var(--muted)", fontSize: "17px" }}>
-              Change any flag or the hours. Everything recalculates at once,
-              with no AI call.
-            </p>
+            )}
           </div>
 
-          {!hasItems && (
-            <div
-              style={{
-                position: "relative",
-                overflow: "hidden",
-                borderRadius: "28px",
-                padding: "72px 24px",
-                textAlign: "center",
-                color: "var(--muted)",
-                fontSize: "17px",
-                background: "var(--panel)",
-                boxShadow: "var(--lift)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: "16px",
-              }}
-            >
-              {running && <div className="am-scan" />}
-              <span className={running ? "am-breathe" : ""}>
-                {running
-                  ? stage === 1
-                    ? "Splitting the message into separate requests…"
-                    : "Matching each request to a contract clause…"
-                  : visibleBanner
-                    ? visibleBanner
-                    : message.trim() && contract.trim()
-                      ? "Run the analysis to see what is covered. Your job is ready above."
-                      : "Paste a contract and a client message above, then run the analysis."}
-              </span>
-              {!running && showSampleAction && !overCharLimit && (
-                <button
-                  type="button"
-                  className="am-brass"
-                  onClick={handleLoadAndRunSample}
-                  style={{
-                    minHeight: "46px",
-                    padding: "0 24px",
-                    border: 0,
-                    borderRadius: "999px",
-                    background: "var(--brass)",
-                    color: "var(--onBrass)",
-                    fontSize: "15px",
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  Load architecture sample
-                </button>
-              )}
-            </div>
-          )}
+          {/* Right Panel: Live Change-Order Verdict & Count-Based Scope Bar */}
+          <div
+            id="results"
+            className="am-glass-card-strong"
+            style={{
+              padding: "24px",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              gap: "20px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            {running && <div className="am-scan" />}
 
-          {hasItems && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "32px",
-              }}
-            >
+            {/* Notices when custom text is run without API key or fails */}
+            {missingKeyNotice && (
               <div
+                role="region"
+                aria-label="API key required for custom text"
                 style={{
+                  padding: "18px",
+                  borderRadius: "14px",
+                  background: "var(--well)",
+                  border: "1px solid var(--rule-strong)",
                   display: "flex",
-                  flexWrap: "wrap",
-                  alignItems: "flex-end",
-                  justifyContent: "space-between",
-                  gap: "24px 48px",
+                  flexDirection: "column",
+                  gap: "14px",
                 }}
               >
                 <div
                   style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "6px",
-                    minWidth: 0,
+                    fontSize: "15px",
+                    color: "var(--ink)",
+                    lineHeight: 1.55,
                   }}
                 >
-                  <div style={{ fontSize: "16px", color: "var(--muted)" }}>
-                    Extra work to bill
-                  </div>
-                  <div
-                    key={billFlashKey}
-                    className={`am-num ${billFlashKey > 0 ? (billFlashKey % 2 === 1 ? "am-fa" : "am-fb") : ""}`}
-                    data-testid="bill"
+                  Analyzing your own text needs an Anthropic API key, and this
+                  demo doesn&rsquo;t have one set. You can still see how Ambit
+                  works on the built-in architecture sample.
+                </div>
+                <div>
+                  <button
+                    className="am-cta-mint"
+                    onClick={handleLoadSample}
                     style={{
-                      fontSize: "clamp(72px, 12vw, 148px)",
-                      fontWeight: 700,
-                      lineHeight: 0.95,
-                      letterSpacing: "-0.05em",
+                      height: "42px",
+                      padding: "0 20px",
+                      fontSize: "14px",
                     }}
                   >
-                    {summary.billText}
+                    Load architecture sample
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {apiErrorNotice && (
+              <div
+                role="alert"
+                style={{
+                  padding: "18px",
+                  borderRadius: "14px",
+                  background: "var(--extSoft)",
+                  border: "1px solid var(--extBorder)",
+                  color: "var(--extText)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "12px",
+                  fontSize: "15px",
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>{apiErrorNotice}</div>
+                <div>
+                  <button
+                    className="am-cta-mint"
+                    onClick={handleLoadSample}
+                    style={{
+                      height: "42px",
+                      padding: "0 18px",
+                      fontSize: "14px",
+                    }}
+                  >
+                    Load architecture sample
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {emptyRequestsNotice && (
+              <div
+                style={{
+                  padding: "28px 18px",
+                  borderRadius: "14px",
+                  background: "var(--well)",
+                  textAlign: "center",
+                  color: "var(--muted)",
+                  fontSize: "16px",
+                  fontWeight: 600,
+                }}
+              >
+                No requests found in this message
+              </div>
+            )}
+
+            {!showResults &&
+              !missingKeyNotice &&
+              !apiErrorNotice &&
+              !emptyRequestsNotice && (
+                <div
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    textAlign: "center",
+                    padding: "40px 20px",
+                    color: "var(--muted)",
+                    gap: "12px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "48px",
+                      height: "48px",
+                      borderRadius: "50%",
+                      background: "var(--mint-soft)",
+                      border: "1px solid var(--rule-strong)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "var(--mint)",
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="22"
+                      height="22"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M12 3v18M3 12h18" />
+                    </svg>
+                  </div>
+                  <div
+                    className="am-display"
+                    style={{
+                      fontSize: "20px",
+                      fontWeight: 700,
+                      color: "var(--ink)",
+                    }}
+                  >
+                    {running
+                      ? analyzeLabel
+                      : "Ready to calculate your change order"}
+                  </div>
+                  <div style={{ fontSize: "15px", maxWidth: "36ch" }}>
+                    Paste your contract and client message on the left and click{" "}
+                    <strong style={{ color: "var(--ink)" }}>
+                      Analyze message
+                    </strong>
+                    , or load the built-in architecture sample.
+                  </div>
+                </div>
+              )}
+
+            {showResults && (
+              <>
+                {/* Top Verdict Header (Plain-English Title, High Contrast) */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: "12px",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: 600,
+                        color: "var(--muted)",
+                      }}
+                    >
+                      Extra work to bill
+                    </div>
+                    <div
+                      key={`bill-${flashTick}`}
+                      className="am-num am-flash"
+                      data-testid="bill"
+                      style={{
+                        fontSize: "clamp(56px, 6.4vw, 84px)",
+                        fontWeight: 800,
+                        lineHeight: 0.96,
+                        letterSpacing: "-0.045em",
+                        color: "var(--mint)",
+                        marginTop: "6px",
+                      }}
+                    >
+                      {summary.billText}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      padding: "7px 14px",
+                      borderRadius: "999px",
+                      background: "var(--mint-soft)",
+                      border: "1px solid var(--covBorder)",
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      color: "var(--mint-text)",
+                    }}
+                  >
+                    {summary.extraCount} billable{" "}
+                    {summary.extraCount === 1 ? "item" : "items"}
                   </div>
                 </div>
 
+                {/* Status Tally Chips + Formula Box */}
                 <div
                   style={{
                     display: "flex",
                     flexDirection: "column",
                     gap: "12px",
-                    flex: "1 1 320px",
-                    maxWidth: "520px",
                   }}
                 >
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                    }}
+                  >
                     <span
                       data-testid="stat-covered"
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: "8px",
-                        padding: "8px 14px",
+                        gap: "7px",
+                        padding: "6px 13px",
                         borderRadius: "999px",
                         background: "var(--covSoft)",
+                        border: "1px solid var(--covBorder)",
                         color: "var(--covText)",
-                        fontSize: "15px",
-                        fontWeight: 600,
+                        fontSize: "14px",
+                        fontWeight: 700,
                       }}
                     >
                       <svg
                         viewBox="0 0 16 16"
-                        width="15"
-                        height="15"
+                        width="14"
+                        height="14"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="2.2"
+                        strokeWidth="2.4"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         aria-hidden="true"
@@ -1211,22 +1111,23 @@ export default function AmbitPage() {
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: "8px",
-                        padding: "8px 14px",
+                        gap: "7px",
+                        padding: "6px 13px",
                         borderRadius: "999px",
                         background: "var(--extSoft)",
+                        border: "1px solid var(--extBorder)",
                         color: "var(--extText)",
-                        fontSize: "15px",
-                        fontWeight: 600,
+                        fontSize: "14px",
+                        fontWeight: 700,
                       }}
                     >
                       <svg
                         viewBox="0 0 16 16"
-                        width="15"
-                        height="15"
+                        width="14"
+                        height="14"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="2.2"
+                        strokeWidth="2.4"
                         strokeLinecap="round"
                         aria-hidden="true"
                       >
@@ -1240,19 +1141,20 @@ export default function AmbitPage() {
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
-                        gap: "8px",
-                        padding: "8px 14px",
+                        gap: "7px",
+                        padding: "6px 13px",
                         borderRadius: "999px",
                         background: "var(--uncSoft)",
+                        border: "1px solid var(--uncBorder)",
                         color: "var(--uncText)",
-                        fontSize: "15px",
-                        fontWeight: 600,
+                        fontSize: "14px",
+                        fontWeight: 700,
                       }}
                     >
                       <svg
                         viewBox="0 0 16 16"
-                        width="15"
-                        height="15"
+                        width="14"
+                        height="14"
                         fill="none"
                         stroke="currentColor"
                         strokeWidth="2.2"
@@ -1267,897 +1169,756 @@ export default function AmbitPage() {
 
                   <div
                     data-testid="formula"
+                    className="am-mono"
                     style={{
-                      fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
                       fontSize: "14px",
                       color: "var(--ink)",
                       padding: "12px 16px",
-                      borderRadius: "14px",
-                      background: "var(--panel)",
-                      boxShadow: "var(--lift)",
+                      borderRadius: "12px",
+                      background: "var(--well)",
+                      border: "1px solid var(--rule)",
                       overflowWrap: "anywhere",
                     }}
                   >
                     {summary.formulaText}
                   </div>
-                  <div
-                    style={{
-                      fontSize: "14px",
-                      color: "var(--muted)",
-                      minHeight: "20px",
-                    }}
-                  >
-                    {summary.billNote}
-                  </div>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  background: "var(--panel)",
-                  borderRadius: "28px",
-                  boxShadow: "var(--lift)",
-                  padding: "clamp(18px, 3vw, 32px)",
-                  boxSizing: "border-box",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "6px",
-                }}
-                data-testid="bar"
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                    marginBottom: "14px",
-                  }}
-                >
-                  <h3
-                    className="am-display"
-                    style={{
-                      margin: 0,
-                      fontSize: "22px",
-                      fontWeight: 700,
-                      letterSpacing: "-0.02em",
-                    }}
-                  >
-                    Scope, by request count
-                  </h3>
-                  <span style={{ fontSize: "14px", color: "var(--muted)" }}>
-                    Each block is one request ({Math.round(unitPct)}% of{" "}
-                    {summary.totalCount} requests) · {summary.coveredPct}% covered /{" "}
-                    {summary.extraPct}% extra / {summary.unclearPct}% unclear
-                  </span>
                 </div>
 
-                {/* Lane A: In contract (Covered) */}
+                {/* Count-Proportional Scope Bar (Unclear Label Never Clipped) */}
                 <div
+                  data-testid="bar"
                   style={{
+                    background: "var(--well)",
+                    border: "1px solid var(--rule)",
+                    borderRadius: "16px",
+                    padding: "16px 18px",
                     display: "flex",
-                    alignItems: "center",
-                    gap: "14px",
+                    flexDirection: "column",
+                    gap: "12px",
                   }}
                 >
                   <div
                     style={{
-                      width: "96px",
-                      flex: "none",
-                      fontSize: "14px",
-                      color: "var(--muted)",
-                      lineHeight: 1.3,
+                      display: "flex",
+                      alignItems: "baseline",
+                      justifyContent: "space-between",
+                      gap: "8px",
                     }}
                   >
-                    In contract
+                    <h3
+                      className="am-display"
+                      style={{
+                        margin: 0,
+                        fontSize: "17px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Scope split by request count
+                    </h3>
+                    <span style={{ fontSize: "14px", color: "var(--muted)" }}>
+                      {items.length} requests total
+                    </span>
                   </div>
+
+                  {/* Proportional 3-Status Bar */}
                   <div
                     style={{
-                      flex: 1,
-                      position: "relative",
-                      height: "64px",
-                      background: "var(--well)",
-                      borderRadius: "16px",
-                      overflow: "hidden",
+                      display: "flex",
+                      gap: "6px",
+                      height: "48px",
+                      width: "100%",
                     }}
                   >
-                    {laneA.map((a) => (
+                    {summary.coveredPct > 0 && (
                       <div
-                        key={a.key}
-                        className="am-stamp"
-                        title={a.title}
                         style={{
-                          position: "absolute",
-                          top: "6px",
-                          bottom: "6px",
-                          left: `${a.leftPct}%`,
-                          width: `${a.widthPct}%`,
+                          flex: summary.coveredPct,
                           background: "var(--cov)",
                           color: "var(--onCov)",
-                          borderRadius: "11px",
+                          borderRadius: "10px",
                           display: "flex",
                           alignItems: "center",
-                          padding: "0 12px",
-                          boxSizing: "border-box",
-                          overflow: "hidden",
-                          whiteSpace: "nowrap",
+                          justifyContent: "center",
+                          gap: "6px",
+                          padding: "0 10px",
+                          fontWeight: 700,
                           fontSize: "14px",
-                          fontWeight: 600,
-                          transition: "left .5s ease, width .5s ease",
+                          whiteSpace: "nowrap",
                         }}
                       >
-                        {a.label}
+                        <span>Covered</span>
+                        <span className="am-num">{summary.coveredPct}%</span>
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    )}
 
-                <div style={{ display: "flex", gap: "14px", height: "34px" }}>
-                  <div style={{ width: "96px", flex: "none" }} />
-                  <div style={{ flex: 1, position: "relative" }}>
-                    {summary.coveredCount > 0 && (
-                      <>
-                        <div
+                    {summary.extraPct > 0 && (
+                      <div
+                        style={{
+                          flex: summary.extraPct,
+                          background: "var(--ext)",
+                          color: "var(--onExt)",
+                          borderRadius: "10px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "0 14px",
+                          fontWeight: 700,
+                          fontSize: "14px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span>
+                          Extra ({formatHours(summary.totalExtraHours)} h)
+                        </span>
+                        <span className="am-num">{summary.extraPct}%</span>
+                      </div>
+                    )}
+
+                    {summary.unclearPct > 0 && (
+                      <div
+                        style={{
+                          flex: summary.unclearPct,
+                          backgroundColor: "var(--uncSoft)",
+                          backgroundImage:
+                            "repeating-linear-gradient(135deg, var(--uncStripe) 0 2px, transparent 2px 8px)",
+                          border: "1.5px dashed var(--uncBorder)",
+                          color: "var(--uncText)",
+                          borderRadius: "10px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: "0 6px",
+                          fontWeight: 700,
+                          fontSize: "13px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <span
                           style={{
-                            position: "absolute",
-                            top: "3px",
-                            left: "0%",
-                            width: `${summary.coveredPct}%`,
-                            height: "9px",
-                            borderLeft: "1.5px solid var(--covText)",
-                            borderRight: "1.5px solid var(--covText)",
-                            borderBottom: "1.5px solid var(--covText)",
-                            boxSizing: "border-box",
-                            transition: "width .5s ease",
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "15px",
-                            left: "0%",
-                            width: `${summary.coveredPct}%`,
-                            textAlign: "center",
-                            fontSize: "13px",
-                            color: "var(--covText)",
-                            whiteSpace: "nowrap",
-                            overflow: "visible",
+                            background: "var(--panel-solid)",
+                            color: "var(--ink)",
+                            padding: "3px 8px",
+                            borderRadius: "6px",
+                            border: "1px solid var(--rule)",
                           }}
                         >
-                          Covered: {summary.coveredCount} ({summary.coveredPct}%) · 0 h
-                        </div>
-                      </>
+                          Unclear {summary.unclearPct}%
+                        </span>
+                      </div>
                     )}
                   </div>
-                </div>
 
-                {/* Lane B: Extra and Unclear */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "14px",
-                  }}
-                >
+                  {/* Full Unclipped Bar Legend */}
                   <div
                     style={{
-                      width: "96px",
-                      flex: "none",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "8px 18px",
                       fontSize: "14px",
                       color: "var(--muted)",
-                      lineHeight: 1.3,
                     }}
                   >
-                    Extra and unclear
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "7px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: "12px",
+                          height: "12px",
+                          borderRadius: "4px",
+                          background: "var(--cov)",
+                        }}
+                      />
+                      Covered by contract ($0)
+                    </span>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "7px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: "12px",
+                          height: "12px",
+                          borderRadius: "4px",
+                          background: "var(--ext)",
+                        }}
+                      />
+                      Extra work, billable
+                    </span>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "7px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: "12px",
+                          height: "12px",
+                          borderRadius: "4px",
+                          border: "1.5px dashed var(--uncBorder)",
+                          backgroundColor: "var(--uncSoft)",
+                        }}
+                      />
+                      Unclear: not priced yet ($0)
+                    </span>
                   </div>
+
+                  {/* 5 Request Breakdown Pills */}
                   <div
                     style={{
-                      flex: 1,
-                      position: "relative",
-                      height: "64px",
-                      background: "var(--well)",
-                      borderRadius: "16px",
-                      overflow: "hidden",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "8px",
+                      paddingTop: "2px",
                     }}
                   >
-                    {laneB.map((b) => (
-                      <div
-                        key={b.key}
-                        className="am-stamp"
-                        title={b.title}
-                        style={{
-                          position: "absolute",
-                          top: "6px",
-                          bottom: "6px",
-                          left: `${b.leftPct}%`,
-                          width: `${b.widthPct}%`,
-                          borderRadius: "11px",
-                          display: "flex",
-                          alignItems: "center",
-                          padding: "0 12px",
-                          boxSizing: "border-box",
-                          overflow: "hidden",
-                          whiteSpace: "nowrap",
-                          fontSize: "14px",
-                          fontWeight: 600,
-                          transition: "left .5s ease, width .5s ease",
-                          ...(b.isUnclear
-                            ? {
-                                backgroundColor: "var(--uncSoft)",
-                                backgroundImage:
-                                  "repeating-linear-gradient(135deg, var(--uncStripe) 0 1px, transparent 1px 8px)",
-                                border: "1.5px dashed var(--unc)",
-                                color: "var(--uncText)",
-                              }
-                            : {
-                                background: "var(--ext)",
-                                color: "var(--onExt)",
-                              }),
-                        }}
-                      >
-                        {b.isUnclear ? (
-                          <span
-                            style={{
-                              background: "var(--uncSoft)",
-                              color: "var(--uncText)",
-                              padding: "3px 10px",
-                              borderRadius: "999px",
-                              boxShadow: "0 0 0 1px var(--rule)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                            }}
-                          >
-                            {b.label}
-                          </span>
-                        ) : (
-                          b.label
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "14px", height: "34px" }}>
-                  <div style={{ width: "96px", flex: "none" }} />
-                  <div style={{ flex: 1, position: "relative" }}>
-                    {summary.extraCount > 0 && (
-                      <>
-                        <div
+                    {items.map((it, idx) => {
+                      const isCov = it.status === "Covered";
+                      const isExt = it.status === "Extra";
+                      const badgeBg = isCov
+                        ? "var(--covSoft)"
+                        : isExt
+                          ? "var(--extSoft)"
+                          : "var(--uncSoft)";
+                      const badgeColor = isCov
+                        ? "var(--covText)"
+                        : isExt
+                          ? "var(--extText)"
+                          : "var(--uncText)";
+                      const badgeBorder = isCov
+                        ? "var(--covBorder)"
+                        : isExt
+                          ? "var(--extBorder)"
+                          : "var(--uncBorder)";
+                      return (
+                        <span
+                          key={it.id}
                           style={{
-                            position: "absolute",
-                            top: "3px",
-                            left: "0%",
-                            width: `${summary.extraPct}%`,
-                            height: "9px",
-                            borderLeft: "1.5px solid var(--extText)",
-                            borderRight: "1.5px solid var(--extText)",
-                            borderBottom: "1.5px solid var(--extText)",
-                            boxSizing: "border-box",
-                            transition: "width .5s ease, left .5s ease",
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "15px",
-                            left: "0%",
-                            width: `${summary.extraPct}%`,
-                            textAlign: "center",
-                            fontSize: "13px",
-                            color: "var(--extText)",
-                            whiteSpace: "nowrap",
+                            fontSize: "13.5px",
+                            fontWeight: 600,
+                            padding: "4px 11px",
+                            borderRadius: "8px",
+                            background: badgeBg,
+                            color: badgeColor,
+                            border: `1px solid ${badgeBorder}`,
                           }}
                         >
-                          Billable: {summary.extraCount} ({summary.extraPct}%) ·{" "}
-                          {formatHours(summary.totalExtraHours)} h = {summary.billText}
-                        </div>
-                      </>
-                    )}
-                    {summary.unclearCount > 0 && (
-                      <>
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "3px",
-                            left: `${summary.extraPct}%`,
-                            width: `${summary.unclearPct}%`,
-                            height: "9px",
-                            borderLeft: "1.5px solid var(--uncText)",
-                            borderRight: "1.5px solid var(--uncText)",
-                            borderBottom: "1.5px dashed var(--uncText)",
-                            boxSizing: "border-box",
-                            transition: "width .5s ease, left .5s ease",
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: "15px",
-                            left: `${summary.extraPct}%`,
-                            width: `${summary.unclearPct}%`,
-                            textAlign: "center",
-                            fontSize: "13px",
-                            color: "var(--uncText)",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          Unclear: not priced yet ({summary.unclearPct}%)
-                        </div>
-                      </>
-                    )}
+                          #{idx + 1} {it.short} ·{" "}
+                          {isCov
+                            ? "0 h"
+                            : isExt
+                              ? `+${formatHours(it.hours)} h`
+                              : "Unclear"}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
+              </>
+            )}
+          </div>
+        </section>
 
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "14px",
-                    alignItems: "flex-start",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "96px",
-                      flex: "none",
-                      fontSize: "13px",
-                      color: "var(--muted)",
-                    }}
-                  >
-                    Requests
-                  </div>
-                  <div
-                    style={{
-                      flex: 1,
-                      position: "relative",
-                      height: "24px",
-                      borderTop: "1px solid var(--rule)",
-                    }}
-                  >
-                    {Array.from({ length: summary.totalCount }, (_, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: `${idx * unitPct}%`,
-                          borderLeft: "1px solid var(--rule)",
-                          padding: "4px 0 0 5px",
-                          fontSize: "12px",
-                          color: "var(--muted)",
-                        }}
-                      >
-                        #{idx + 1} ({Math.round((idx + 1) * unitPct)}%)
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: "8px 22px",
-                    fontSize: "14px",
-                    color: "var(--muted)",
-                    marginTop: "14px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "14px",
-                        height: "14px",
-                        background: "var(--cov)",
-                        borderRadius: "5px",
-                        display: "inline-block",
-                      }}
-                    />
-                    Covered by the contract
-                  </span>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "14px",
-                        height: "14px",
-                        background: "var(--ext)",
-                        borderRadius: "5px",
-                        display: "inline-block",
-                      }}
-                    />
-                    Extra work, billable
-                  </span>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "14px",
-                        height: "14px",
-                        border: "1.5px dashed var(--unc)",
-                        backgroundImage:
-                          "repeating-linear-gradient(135deg, var(--unc) 0 1px, transparent 1px 5px)",
-                        borderRadius: "5px",
-                        boxSizing: "border-box",
-                        display: "inline-block",
-                      }}
-                    />
-                    Unclear: not priced yet
-                  </span>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "6px",
-                }}
-              >
-                <h3
+        {/* Full-Width Interactive Clause-Matched Request List */}
+        {showResults && (
+          <section
+            aria-label="Requests found in the message"
+            className="am-glass-card"
+            style={{
+              padding: "24px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: "8px",
+              }}
+            >
+              <div>
+                <h2
                   className="am-display"
                   style={{
-                    margin: "0 0 10px",
-                    fontSize: "28px",
-                    fontWeight: 700,
-                    letterSpacing: "-0.03em",
+                    margin: 0,
+                    fontSize: "24px",
+                    fontWeight: 800,
+                    letterSpacing: "-0.025em",
                   }}
                 >
                   Requests found in the message
-                </h3>
-
-                <div
+                </h2>
+                <p
                   style={{
-                    background: "var(--panel)",
-                    borderRadius: "28px",
-                    boxShadow: "var(--lift)",
-                    padding: "10px",
-                    boxSizing: "border-box",
-                    display: "flex",
-                    flexDirection: "column",
+                    margin: "4px 0 0",
+                    fontSize: "15px",
+                    color: "var(--muted)",
                   }}
                 >
-                  {items.map((r, idx) => {
-                    const n = idx + 1;
-                    const isCov = r.status === "Covered";
-                    const isExt = r.status === "Extra";
-                    const isUnc = r.status === "Unclear";
-                    const hasQuote =
-                      Boolean(r.clauseQuote) &&
-                      r.clauseQuote !== "No matching clause found";
+                  Override any flag or edit hours below. Every total and the
+                  client reply recalculate immediately in plain code.
+                </p>
+              </div>
+              <span
+                style={{ fontSize: "14px", color: "var(--muted)" }}
+              >
+                {summary.billNote}
+              </span>
+            </div>
 
-                    const chipStyle = isCov
-                      ? { background: "var(--covSoft)", color: "var(--covText)" }
-                      : isExt
-                        ? { background: "var(--extSoft)", color: "var(--extText)" }
-                        : { background: "var(--uncSoft)", color: "var(--uncText)" };
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+              }}
+            >
+              {items.map((r, idx) => {
+                const n = idx + 1;
+                const isCov = r.status === "Covered";
+                const isExt = r.status === "Extra";
+                const isUnc = r.status === "Unclear";
+                const hasVerifiedQuote =
+                  r.clauseQuote &&
+                  r.clauseQuote !== "No matching clause found";
+                const rowDollars = isExt
+                  ? clampNonNegative(r.hours, 999) * summary.hourlyRate
+                  : 0;
 
-                    const segStyle = (on: boolean, kind: RequestStatus) => {
-                      if (!on)
-                        return { background: "transparent", color: "var(--muted)" };
-                      if (kind === "Covered")
-                        return { background: "var(--cov)", color: "var(--onCov)" };
-                      if (kind === "Extra")
-                        return { background: "var(--ext)", color: "var(--onExt)" };
-                      return { background: "var(--unc)", color: "var(--bg)" };
-                    };
+                const statusBadgeStyle: React.CSSProperties = isCov
+                  ? {
+                      background: "var(--covSoft)",
+                      color: "var(--covText)",
+                      border: "1px solid var(--covBorder)",
+                    }
+                  : isExt
+                    ? {
+                        background: "var(--extSoft)",
+                        color: "var(--extText)",
+                        border: "1px solid var(--extBorder)",
+                      }
+                    : {
+                        background: "var(--uncSoft)",
+                        color: "var(--uncText)",
+                        border: "1px solid var(--uncBorder)",
+                      };
 
-                    return (
-                      <article
-                        key={r.id}
-                        className="am-row"
-                        data-testid={`req-${n}`}
+                return (
+                  <article
+                    key={r.id}
+                    className="am-audit-row am-request-grid"
+                    data-testid={`req-${n}`}
+                    style={{
+                      padding: "18px 20px",
+                      display: "grid",
+                      gridTemplateColumns: "minmax(0, 1.35fr) auto",
+                      alignItems: "center",
+                      gap: "16px 24px",
+                    }}
+                  >
+                    {/* Left: Client Request + Verbatim Contract Clause Citation */}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        minWidth: 0,
+                      }}
+                    >
+                      <div
                         style={{
-                          borderRadius: "20px",
-                          padding: "22px 22px",
-                          boxSizing: "border-box",
                           display: "flex",
                           flexWrap: "wrap",
                           alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: "20px 32px",
-                          ...(idx < items.length - 1
-                            ? {
-                                borderBottom: "1px solid var(--rule)",
-                                borderBottomLeftRadius: 0,
-                                borderBottomRightRadius: 0,
-                              }
-                            : {}),
+                          gap: "10px",
                         }}
                       >
-                        <div
+                        <span
                           style={{
-                            flex: "1 1 420px",
-                            minWidth: 0,
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: "10px",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "flex-start",
-                              gap: "12px",
-                            }}
-                          >
-                            <span
-                              style={{
-                                ...chipStyle,
-                                flex: "none",
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: "6px",
-                                padding: "4px 11px",
-                                borderRadius: "999px",
-                                fontSize: "13px",
-                                fontWeight: 600,
-                                marginTop: "4px",
-                              }}
-                            >
-                              {isCov && (
-                                <svg
-                                  viewBox="0 0 16 16"
-                                  width="14"
-                                  height="14"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2.2"
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M3 8.5l3.2 3.2L13 4.8" />
-                                </svg>
-                              )}
-                              {isExt && (
-                                <svg
-                                  viewBox="0 0 16 16"
-                                  width="14"
-                                  height="14"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2.2"
-                                  strokeLinecap="round"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M8 3v10M3 8h10" />
-                                </svg>
-                              )}
-                              {isUnc && (
-                                <svg
-                                  viewBox="0 0 16 16"
-                                  width="14"
-                                  height="14"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="2.2"
-                                  strokeLinecap="round"
-                                  aria-hidden="true"
-                                >
-                                  <path d="M6 6a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.5M8 12v.1" />
-                                </svg>
-                              )}
-                              {isCov
-                                ? "Covered"
-                                : isExt
-                                  ? "Extra work"
-                                  : "Unclear"}
-                            </span>
-                            <p
-                              className="am-display"
-                              style={{
-                                margin: 0,
-                                fontSize: "24px",
-                                fontWeight: 600,
-                                lineHeight: 1.25,
-                                letterSpacing: "-0.02em",
-                                textWrap: "pretty",
-                              }}
-                            >
-                              &ldquo;{r.requestText}&rdquo;
-                            </p>
-                          </div>
-
-                          <div
-                            style={{
-                              fontSize: "15px",
-                              color: "var(--muted)",
-                              textWrap: "pretty",
-                              maxWidth: "40em",
-                            }}
-                          >
-                            <span
-                              style={{ fontWeight: 600, color: "var(--ink)" }}
-                            >
-                              {hasQuote ? `${r.clauseTag}. ` : "No matching clause found. "}
-                            </span>
-                            {hasQuote && (
-                              <span style={{ fontStyle: "italic" }}>
-                                &ldquo;{r.clauseQuote}&rdquo;{" "}
-                              </span>
-                            )}
-                            {r.reason}
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            display: "flex",
-                            flexWrap: "wrap",
+                            ...statusBadgeStyle,
+                            display: "inline-flex",
                             alignItems: "center",
-                            gap: "14px 20px",
+                            gap: "6px",
+                            padding: "4px 12px",
+                            borderRadius: "999px",
+                            fontSize: "13.5px",
+                            fontWeight: 700,
                           }}
                         >
-                          <div
-                            role="group"
-                            aria-label={`Flag for request ${n}`}
-                            style={{
-                              display: "inline-flex",
-                              padding: "4px",
-                              gap: "4px",
-                              borderRadius: "999px",
-                              background: "var(--well)",
-                            }}
-                          >
-                            <button
-                              type="button"
-                              className="am-seg-btn"
-                              data-testid={`flag-${n}-covered`}
-                              onClick={() => handleSetFlag(r.id, "Covered")}
-                              aria-pressed={isCov}
-                              style={{
-                                minHeight: "44px",
-                                padding: "0 18px",
-                                border: 0,
-                                borderRadius: "999px",
-                                fontSize: "15px",
-                                fontWeight: 600,
-                                cursor: "pointer",
-                                ...segStyle(isCov, "Covered"),
-                              }}
+                          {isCov && (
+                            <svg
+                              viewBox="0 0 16 16"
+                              width="13"
+                              height="13"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
                             >
-                              Covered
-                            </button>
-                            <button
-                              type="button"
-                              className="am-seg-btn"
-                              data-testid={`flag-${n}-extra`}
-                              onClick={() => handleSetFlag(r.id, "Extra")}
-                              aria-pressed={isExt}
-                              style={{
-                                minHeight: "44px",
-                                padding: "0 18px",
-                                border: 0,
-                                borderRadius: "999px",
-                                fontSize: "15px",
-                                fontWeight: 600,
-                                cursor: "pointer",
-                                ...segStyle(isExt, "Extra"),
-                              }}
+                              <path d="M3 8.5l3.2 3.2L13 4.8" />
+                            </svg>
+                          )}
+                          {isExt && (
+                            <svg
+                              viewBox="0 0 16 16"
+                              width="13"
+                              height="13"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.4"
+                              strokeLinecap="round"
                             >
-                              Extra
-                            </button>
-                            <button
-                              type="button"
-                              className="am-seg-btn"
-                              data-testid={`flag-${n}-unclear`}
-                              onClick={() => handleSetFlag(r.id, "Unclear")}
-                              aria-pressed={isUnc}
-                              style={{
-                                minHeight: "44px",
-                                padding: "0 18px",
-                                border: 0,
-                                borderRadius: "999px",
-                                fontSize: "15px",
-                                fontWeight: 600,
-                                cursor: "pointer",
-                                ...segStyle(isUnc, "Unclear"),
-                              }}
+                              <path d="M8 3v10M3 8h10" />
+                            </svg>
+                          )}
+                          {isUnc && (
+                            <svg
+                              viewBox="0 0 16 16"
+                              width="13"
+                              height="13"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.2"
+                              strokeLinecap="round"
                             >
-                              Unclear
-                            </button>
-                          </div>
+                              <path d="M6 6a2 2 0 1 1 3 1.7c-.7.4-1 .8-1 1.5M8 12v.1" />
+                            </svg>
+                          )}
+                          {isCov
+                            ? "Covered"
+                            : isExt
+                              ? "Extra work"
+                              : "Unclear"}
+                        </span>
 
-                          <div
+                        <p
+                          className="am-display"
+                          style={{
+                            margin: 0,
+                            fontSize: "19px",
+                            fontWeight: 700,
+                            letterSpacing: "-0.015em",
+                          }}
+                        >
+                          &ldquo;{r.requestText}&rdquo;
+                        </p>
+                      </div>
+
+                      {/* Verbatim Contract Clause Evidence Box */}
+                      <div
+                        style={{
+                          padding: "10px 14px",
+                          borderRadius: "10px",
+                          background: "var(--panel-solid)",
+                          border: "1px solid var(--rule)",
+                          fontSize: "14.5px",
+                          color: "var(--muted)",
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "6px",
+                          alignItems: "baseline",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontWeight: 700,
+                            color: hasVerifiedQuote
+                              ? "var(--mint-text)"
+                              : "var(--uncText)",
+                          }}
+                        >
+                          {r.clauseTag}:
+                        </span>
+                        {hasVerifiedQuote ? (
+                          <span
                             style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "10px",
+                              fontStyle: "italic",
+                              color: "var(--ink)",
                             }}
                           >
-                            <label
-                              htmlFor={`hours-${r.id}`}
-                              style={{ fontSize: "14px", color: "var(--muted)" }}
-                            >
-                              {isCov
-                                ? "Included"
-                                : isExt
-                                  ? "Time needed"
-                                  : "If added"}
-                            </label>
-                            <input
-                              id={`hours-${r.id}`}
-                              data-testid={`hours-${n}`}
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              value={hoursStrMap[r.id] ?? String(r.hours)}
-                              onChange={(e) =>
-                                handleSetHours(r.id, e.target.value)
-                              }
-                              onBlur={() => handleBlurHours(r.id)}
-                              disabled={isCov}
-                              style={{
-                                width: "76px",
-                                height: "44px",
-                                boxSizing: "border-box",
-                                padding: "0 12px",
-                                border: 0,
-                                borderRadius: "12px",
-                                background: "var(--well)",
-                                color: "var(--ink)",
-                                fontFamily:
-                                  "'Bricolage Grotesque', 'Instrument Sans', sans-serif",
-                                fontVariantNumeric: "tabular-nums",
-                                fontSize: "18px",
-                                fontWeight: 600,
-                                opacity: isCov ? 0.5 : 1,
-                              }}
-                            />
-                            <span
-                              style={{ fontSize: "14px", color: "var(--muted)" }}
-                            >
-                              h
-                            </span>
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
+                            &ldquo;{r.clauseQuote}&rdquo;
+                          </span>
+                        ) : (
+                          <span style={{ fontStyle: "italic", color: "var(--ink)" }}>
+                            No matching clause found
+                          </span>
+                        )}
+                        {r.reason && <span>— {r.reason}</span>}
+                      </div>
+                    </div>
+
+                    {/* Right: 3-Way Status Toggle + Hours Input + Row Dollar Impact */}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        alignItems: "center",
+                        gap: "12px",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <div
+                        role="group"
+                        aria-label={`Flag for request ${n}`}
+                        style={{
+                          display: "inline-flex",
+                          padding: "4px",
+                          gap: "4px",
+                          borderRadius: "999px",
+                          background: "var(--panel-solid)",
+                          border: "1px solid var(--rule)",
+                        }}
+                      >
+                        <button
+                          data-testid={`flag-${n}-covered`}
+                          onClick={() => handleSetFlag(r.id, "Covered")}
+                          aria-pressed={isCov}
+                          style={{
+                            height: "38px",
+                            padding: "0 15px",
+                            border: 0,
+                            borderRadius: "999px",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            background: isCov ? "var(--cov)" : "transparent",
+                            color: isCov ? "var(--onCov)" : "var(--muted)",
+                          }}
+                        >
+                          Covered
+                        </button>
+                        <button
+                          data-testid={`flag-${n}-extra`}
+                          onClick={() => handleSetFlag(r.id, "Extra")}
+                          aria-pressed={isExt}
+                          style={{
+                            height: "38px",
+                            padding: "0 15px",
+                            border: 0,
+                            borderRadius: "999px",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            background: isExt ? "var(--ext)" : "transparent",
+                            color: isExt ? "var(--onExt)" : "var(--muted)",
+                          }}
+                        >
+                          Extra
+                        </button>
+                        <button
+                          data-testid={`flag-${n}-unclear`}
+                          onClick={() => handleSetFlag(r.id, "Unclear")}
+                          aria-pressed={isUnc}
+                          style={{
+                            height: "38px",
+                            padding: "0 15px",
+                            border: 0,
+                            borderRadius: "999px",
+                            fontSize: "14px",
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            background: isUnc
+                              ? "var(--uncSoft)"
+                              : "transparent",
+                            color: isUnc ? "var(--uncText)" : "var(--muted)",
+                          }}
+                        >
+                          Unclear
+                        </button>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          background: "var(--panel-solid)",
+                          border: "1px solid var(--rule)",
+                          borderRadius: "12px",
+                          padding: "0 12px",
+                          height: "44px",
+                        }}
+                      >
+                        <label
+                          htmlFor={`hours-${n}`}
+                          style={{
+                            fontSize: "13.5px",
+                            color: "var(--muted)",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {isCov ? "In contract" : isUnc ? "If extra" : "Hours"}
+                        </label>
+                        <input
+                          id={`hours-${n}`}
+                          data-testid={`hours-${n}`}
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          value={isCov ? "0" : String(r.hours)}
+                          onChange={(e) => handleSetHours(r.id, e.target.value)}
+                          disabled={isCov}
+                          style={{
+                            width: "54px",
+                            border: 0,
+                            background: "transparent",
+                            color: "var(--ink)",
+                            fontFamily:
+                              "var(--font-bricolage), var(--font-instrument), sans-serif",
+                            fontVariantNumeric: "tabular-nums",
+                            fontSize: "17px",
+                            fontWeight: 700,
+                            textAlign: "right",
+                            opacity: isCov ? 0.5 : isUnc ? 0.75 : 1,
+                          }}
+                        />
+                        <span
+                          style={{ fontSize: "13.5px", color: "var(--muted)" }}
+                        >
+                          h
+                        </span>
+                      </div>
+
+                      <div
+                        className="am-num"
+                        style={{
+                          minWidth: "72px",
+                          textAlign: "right",
+                          fontSize: "19px",
+                          fontWeight: 800,
+                          color: isExt ? "var(--extText)" : "var(--muted)",
+                        }}
+                      >
+                        {isExt ? `+$${formatDollars(rowDollars)}` : "$0"}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* Bottom Outgoing Client Reply Composer */}
+        {showResults && (
+          <section
+            id="reply"
+            className="am-glass-card-strong"
+            style={{
+              padding: "24px 28px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "12px",
+              }}
+            >
+              <div>
+                <h2
+                  className="am-display"
+                  style={{
+                    margin: 0,
+                    fontSize: "24px",
+                    fontWeight: 800,
+                    letterSpacing: "-0.025em",
+                  }}
+                >
+                  Your reply to the client
+                </h2>
+                <p
+                  style={{
+                    margin: "4px 0 0",
+                    fontSize: "15px",
+                    color: "var(--muted)",
+                  }}
+                >
+                  {clipboardFallbackNotice
+                    ? "Select the text below and press Ctrl+C / Cmd+C."
+                    : copied
+                      ? "Copied to clipboard!"
+                      : "Three sentences. The numbers come from the flags above."}
+                </p>
               </div>
 
-              <div
-                id="reply"
+              <button
+                className="am-cta-mint"
+                data-testid="copy"
+                onClick={handleCopy}
                 style={{
-                  scrollMarginTop: "84px",
-                  background: "var(--ink)",
-                  color: "var(--bg)",
-                  borderRadius: "28px",
-                  boxShadow: "var(--lift)",
-                  padding: "clamp(22px, 4vw, 44px)",
-                  boxSizing: "border-box",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "22px",
+                  height: "46px",
+                  padding: "0 24px",
+                  fontSize: "15px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "8px",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                    gap: "8px",
-                  }}
+                <svg
+                  viewBox="0 0 24 24"
+                  width="17"
+                  height="17"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
                 >
-                  <h3
-                    className="am-display"
-                    style={{
-                      margin: 0,
-                      fontSize: "clamp(26px, 3.4vw, 38px)",
-                      fontWeight: 700,
-                      letterSpacing: "-0.03em",
-                      lineHeight: 1.1,
-                    }}
-                  >
-                    Your reply to the client
-                  </h3>
-                  <span style={{ fontSize: "15px", opacity: 0.7 }}>
-                    Three sentences. The numbers come from the flags above.
-                  </span>
-                </div>
-
-                <div
-                  key={replyFlashKey}
-                  className={
-                    replyFlashKey > 0
-                      ? replyFlashKey % 2 === 1
-                        ? "am-fa"
-                        : "am-fb"
-                      : ""
-                  }
-                  data-testid="reply"
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    fontSize: "clamp(18px, 2.1vw, 22px)",
-                    lineHeight: 1.6,
-                    padding: "4px 0 4px 22px",
-                    borderLeft: "3px solid var(--brass)",
-                    maxWidth: "44em",
-                    textWrap: "pretty",
-                  }}
-                >
-                  {summary.replyText}
-                </div>
-
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    gap: "14px",
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="am-brass"
-                    data-testid="copy"
-                    onClick={handleCopyReply}
-                    style={{
-                      height: "56px",
-                      padding: "0 30px",
-                      border: 0,
-                      borderRadius: "999px",
-                      background: "var(--brass)",
-                      color: "var(--onBrass)",
-                      fontSize: "17px",
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "10px",
-                    }}
-                  >
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="18"
-                      height="18"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <rect x="9" y="9" width="11" height="11" rx="2" />
-                      <path d="M5 15V6a2 2 0 0 1 2-2h8" />
-                    </svg>
-                    <span>{copied === "yes" ? "Copied" : "Copy reply"}</span>
-                  </button>
-                  <span style={{ fontSize: "14px", opacity: 0.7 }}>
-                    {copied === "no"
-                      ? "Copy was blocked here. Select the text above and copy it."
-                      : "Change a flag or the hours and the reply updates."}
-                  </span>
-                </div>
-              </div>
+                  <rect x="9" y="9" width="11" height="11" rx="2" />
+                  <path d="M5 15V6a2 2 0 0 1 2-2h8" />
+                </svg>
+                <span>{copied ? "Copied" : "Copy reply"}</span>
+              </button>
             </div>
-          )}
-        </section>
 
+            <div
+              key={`reply-${flashTick}`}
+              data-testid="reply"
+              style={{
+                whiteSpace: "pre-wrap",
+                fontSize: "17px",
+                lineHeight: 1.65,
+                padding: "18px 20px",
+                borderRadius: "14px",
+                background: "var(--well)",
+                border: "1px solid var(--rule)",
+                borderLeft: "4px solid var(--mint)",
+                color: "var(--ink)",
+              }}
+            >
+              {summary.replyText}
+            </div>
+          </section>
+        )}
+
+        {/* Footer */}
         <footer
           style={{
             display: "flex",
             flexWrap: "wrap",
             justifyContent: "space-between",
-            gap: "10px 32px",
+            gap: "10px 24px",
             paddingTop: "8px",
             fontSize: "14px",
             color: "var(--muted)",
@@ -2173,7 +1934,7 @@ export default function AmbitPage() {
             the Anthropic API.
           </span>
         </footer>
-      </div>
+      </main>
     </div>
   );
 }
